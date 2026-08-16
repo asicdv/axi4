@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AXI4 Workbook — Write Error Responses</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
+<style>
+  :root{
+    --paper:#faf9f5; --card:#fffefb; --card2:#f5f3ec; --sunk:#f0eee5;
+    --ink:#1f1e1d; --mid:#6b6862; --faint:#9a968d;
+    --rule:#e3dfd3; --hair:#ece9df;
+    --accent:#c15f3c; --accent-soft:#f7ece7; --accent-line:#e0b9a7;
+    --good:#3f7d5f; --good-soft:#eef5f0;
+    --bad:#b0453a; --bad-soft:#faeeec;
+    --gold:#9a7328; --gold-soft:#f8f2e4;
+    --serif:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--serif);font-size:18px;line-height:1.66;
+    padding:34px 30px 100px;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+
+  /* ── header ── */
+  header{border-bottom:1px solid var(--rule);padding-bottom:16px;margin-bottom:8px}
+  .topline{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .topic{font-family:var(--sans);font-size:13px;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .savestate{font-family:var(--sans);font-size:13px;color:var(--faint);display:flex;align-items:center;gap:6px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--faint);transition:background .3s}
+  .dot.saving{background:var(--gold)}.dot.saved{background:var(--good)}.dot.err{background:var(--bad)}
+  h1{font-family:var(--serif);font-size:34px;font-weight:600;margin:14px 0 4px;letter-spacing:-.015em;line-height:1.18}
+  .sub{font-size:17px;color:var(--mid);font-style:italic}
+  .prog{display:flex;gap:5px;margin:16px 0 5px}
+  .prog div{flex:1;height:3px;border-radius:2px;background:var(--rule);transition:background .3s}
+  .prog div.done{background:var(--accent)}
+  .proglabel{font-family:var(--sans);font-size:13px;color:var(--faint);text-align:right}
+
+  /* ── section headings ── */
+  h2{
+    font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--accent);margin:40px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--hair);
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap
+  }
+  h2 .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;
+    background:var(--accent-soft);color:var(--accent);font-size:12px;flex-shrink:0;border:1px solid var(--accent-line)}
+  h2 .hint{margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;font-size:14px;color:var(--faint);font-style:italic;font-family:var(--serif)}
+
+  /* ── background prose ── */
+  @media(min-width:1000px){.bg .cols{column-count:2;column-gap:46px}.bg .cols h3{break-after:avoid}.bg .cols p{break-inside:avoid}}
+  .bg h3{font-family:var(--serif);font-size:20px;font-weight:600;margin:22px 0 6px;letter-spacing:-.01em}
+  .bg h3:first-child{margin-top:0}
+  .bg p{margin:0 0 12px}
+  .lead{font-size:20px;line-height:1.58;color:var(--ink)}
+  .bg .mono,code{font-family:var(--mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:3px;color:var(--ink)}
+
+  .pull{border-left:3px solid var(--accent-line);background:var(--accent-soft);padding:13px 17px;margin:18px 0;border-radius:0 6px 6px 0}
+  .pull p{margin:0;font-size:17.5px}
+  .pull .plabel{font-family:var(--sans);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:5px}
+
+  table.apps{width:100%;border-collapse:collapse;margin:18px 0;font-size:16.5px}
+  table.apps th{font-family:var(--sans);font-size:12.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mid);
+    text-align:left;font-weight:600;padding:0 12px 7px 0;border-bottom:1px solid var(--rule)}
+  table.apps td{padding:9px 12px 9px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+  table.apps td:first-child{font-weight:600;white-space:nowrap;width:1%}
+  table.apps td .cfg{font-family:var(--mono);font-size:14px;color:var(--accent);display:block;margin-top:2px;font-weight:400}
+
+  .mathblock{background:var(--card2);border:1px solid var(--rule);border-radius:7px;padding:17px 21px;margin:18px 0;font-family:var(--mono);font-size:15px;line-height:1.9;color:var(--ink)}
+  .mathblock .cmt{color:var(--faint)}
+  .mathblock .hi{color:var(--accent);font-weight:600}
+
+  /* ── config ── */
+  .config{border:1px solid var(--rule);border-left:3px solid var(--ink);padding:15px 18px;background:var(--card);border-radius:0 7px 7px 0}
+  .config table{width:100%;border-collapse:collapse}
+  .config td{font-family:var(--mono);font-size:15px;padding:4px 12px 4px 0;vertical-align:baseline}
+  .config td.sig{font-weight:600;width:112px}
+  .config td.val{width:145px;color:var(--accent)}
+  .config td.note{font-family:var(--serif);font-size:16px;color:var(--mid);font-style:italic}
+  .cite{font-size:15px;color:var(--faint);font-style:italic;margin-top:9px}
+
+  /* ── predict ── */
+  .predict{border:1px dashed var(--rule);border-radius:8px;padding:17px 20px;background:var(--card)}
+  .predict ol,.recall ol{margin:0;padding-left:20px}
+  .predict li{margin-bottom:18px;font-size:17.5px}
+  .predict li::marker,.recall li::marker{color:var(--faint);font-family:var(--sans);font-size:15px}
+
+  input.f,textarea.f{
+    background:var(--sunk);border:none;border-bottom:1.5px solid var(--rule);color:var(--ink);
+    font-family:var(--mono);font-size:15px;padding:5px 10px;border-radius:4px 4px 0 0;outline:none;transition:all .18s
+  }
+  input.f:focus,textarea.f:focus{border-bottom-color:var(--accent);background:#fff}
+  input.f.filled,textarea.f.filled{border-bottom-color:var(--faint)}
+  input.f.correct{border-bottom-color:var(--good);background:var(--good-soft)}
+  input.f.wrong{border-bottom-color:var(--bad);background:var(--bad-soft)}
+  input.n{width:74px}input.m{width:148px}input.w{width:100%;max-width:420px}
+  textarea.f{display:block;width:100%;resize:vertical;min-height:52px;line-height:1.6;margin:7px 0;
+    border-radius:5px;border:1px solid var(--rule);border-bottom-width:1.5px;font-family:var(--serif);font-size:17px}
+  .mark{font-family:var(--mono);font-size:15px;margin-left:7px;font-weight:700}
+  .mark.ok{color:var(--good)}.mark.no{color:var(--bad)}
+  .ans{display:inline-block;font-family:var(--mono);font-size:14px;color:var(--gold);margin-left:6px;
+    padding:1px 9px;border:1px solid rgba(154,115,40,.35);border-radius:11px;background:var(--gold-soft);white-space:nowrap}
+  .ans::before{content:'→ ';opacity:.55}
+
+  /* ── buttons ── */
+  button.t{background:transparent;border:1px solid var(--rule);color:var(--mid);font-family:var(--sans);
+    font-size:14px;padding:6px 15px;border-radius:6px;cursor:pointer;transition:all .15s}
+  button.t:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  button.t.go{border-color:var(--accent-line);color:var(--accent)}
+  button.t.go:hover{background:var(--accent-soft)}
+  button.t.gold{border-color:rgba(154,115,40,.4);color:var(--gold)}
+  button.t.gold:hover{background:var(--gold-soft);border-color:var(--gold);color:var(--gold)}
+  button.t.danger:hover{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+
+  /* ── waveform ── */
+  .wavebox{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--card)}
+  .wavetools{display:flex;gap:7px;padding:11px 13px;border-bottom:1px solid var(--hair);flex-wrap:wrap;align-items:center;background:var(--card2)}
+  .wavetools .lbl{font-family:var(--sans);font-size:13.5px;color:var(--faint)}
+  .wavescroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.wave{border-collapse:collapse;font-family:var(--mono);font-size:13px;min-width:820px;width:100%}
+  table.wave th{font-weight:400;color:var(--faint);font-size:13px;padding:7px 0 5px;border-bottom:1px solid var(--rule);text-align:center}
+  table.wave th.lbl{text-align:right;padding-right:13px;width:104px}
+  table.wave td.lbl{text-align:right;padding-right:13px;font-size:13.5px;font-weight:600;border-right:1px solid var(--rule);white-space:nowrap;width:104px}
+  td.cell{height:34px;border-right:1px dotted var(--hair);border-bottom:1px solid var(--hair);cursor:pointer;position:relative;padding:0;min-width:58px}
+  td.cell:hover{background:var(--accent-soft)}
+  td.cell .lvl{position:absolute;left:0;right:0;height:2px;background:var(--accent);transition:top .12s,background .12s}
+  td.cell.hi .lvl{top:7px}td.cell.lo .lvl{top:25px}
+  td.cell.un .lvl{top:16px;background:var(--rule);height:1px}
+  td.cell.mism{background:var(--bad-soft);box-shadow:inset 0 0 0 1px rgba(176,69,58,.4)}
+  td.cell.match{background:var(--good-soft)}
+  td.cell .gold{position:absolute;left:0;right:0;height:2px;background:var(--good);opacity:.6}
+  tr.busrow td.cell{background:rgba(0,0,0,.014)}
+  tr.busrow input{width:100%;height:32px;background:transparent;border:none;color:var(--gold);
+    font-family:var(--mono);font-size:13px;text-align:center;outline:none;padding:0 2px}
+  tr.busrow input:focus{background:var(--gold-soft)}
+  tr.sep td{height:7px;border:none;background:none}
+  .gridnote{font-size:15px;color:var(--faint);font-style:italic;padding:10px 13px;border-top:1px solid var(--hair)}
+  .waveresult{padding:13px 16px;border-top:1px solid var(--hair);font-family:var(--sans);font-size:15px;display:none;background:var(--card2)}
+  .waveresult.show{display:block}
+
+  /* ── derive ── */
+  .q{font-weight:600;margin:24px 0 10px;font-size:19px}
+  .q:first-child{margin-top:0}
+  .steps{margin:8px 0 16px;padding-left:0;list-style:none;counter-reset:s}
+  .steps li{counter-increment:s;padding:11px 0 11px 36px;position:relative;border-bottom:1px dotted var(--hair);font-size:17.5px}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:11px;font-family:var(--sans);font-size:12px;
+    color:var(--faint);border:1px solid var(--rule);width:21px;height:21px;line-height:19px;text-align:center;border-radius:4px}
+
+  /* ── calc ── */
+  .calc{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+  @media(max-width:900px){.calc{grid-template-columns:1fr}}
+  @media(max-width:700px){body{padding:22px 16px 100px;font-size:17px}h1{font-size:28px}}
+  .calc>div{padding:15px 17px;border-right:1px solid var(--hair);background:var(--card)}
+  .calc>div:last-child{border-right:none}
+  .calc h4{font-family:var(--sans);font-size:13px;font-weight:600;margin:0 0 9px;color:var(--mid);text-transform:uppercase;letter-spacing:.07em}
+  .formula{font-family:var(--mono);font-size:14.5px;color:var(--mid);background:var(--sunk);padding:8px 11px;
+    margin-bottom:11px;border-left:2px solid var(--rule);border-radius:0 5px 5px 0}
+  .calcrow{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-size:15px;padding:6px 0}
+  .calcrow>span:first-child{color:var(--mid);min-width:76px;font-size:14px}
+  .calcrow input{flex:1;min-width:0}
+
+  /* ── tree ── */
+  .tree{font-family:var(--mono);font-size:15px;line-height:2.2;border:1px solid var(--rule);border-radius:8px;padding:16px 18px;background:var(--card)}
+  .tree .obs{font-weight:700;color:var(--accent)}
+  .tree .arrow{color:var(--faint)}
+  .tree .chk{color:var(--ink);font-weight:600}
+  .tree input{width:240px}
+
+  .recall li{margin-bottom:21px;font-size:17.5px}
+
+  /* ── model answer ── */
+  .model{display:none;margin:9px 0 5px;border:1px solid rgba(154,115,40,.28);border-left:3px solid var(--gold);
+    border-radius:0 7px 7px 0;background:var(--gold-soft);padding:14px 17px}
+  .model.show{display:block}
+  .model .mlabel{font-family:var(--sans);font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px}
+  .model .mbody{font-size:17px;line-height:1.64}
+  .selfscore{display:flex;gap:7px;margin-top:13px;align-items:center;flex-wrap:wrap}
+  .selfscore .sl{font-family:var(--sans);font-size:13.5px;color:var(--faint);margin-right:2px}
+  button.s{background:transparent;border:1px solid var(--rule);color:var(--mid);font-family:var(--sans);
+    font-size:13.5px;padding:5px 14px;border-radius:14px;cursor:pointer;transition:all .15s}
+  button.s:hover{border-color:var(--mid)}
+  button.s.sel[data-v="2"]{border-color:var(--good);color:var(--good);background:var(--good-soft)}
+  button.s.sel[data-v="1"]{border-color:var(--gold);color:var(--gold);background:var(--gold-soft)}
+  button.s.sel[data-v="0"]{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+
+  .secbar{display:flex;gap:8px;align-items:center;margin-top:13px;flex-wrap:wrap}
+  .score{font-family:var(--sans);font-size:14.5px;color:var(--faint)}
+  .score b{color:var(--ink)}
+
+  /* ── answer key ── */
+  .keybox{border:1px solid rgba(154,115,40,.3);border-radius:8px;background:var(--gold-soft);overflow:hidden}
+  .keyhdr{padding:14px 17px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+  .keyhdr .kt{font-family:var(--sans);font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);font-weight:600}
+  .keyhdr .kx{margin-left:auto;font-size:15px;color:var(--faint);font-style:italic}
+  .keybody{display:none;padding:0 17px 17px}
+  .keybody.show{display:block}
+  .keygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:7px 24px}
+  .keyrow{display:flex;align-items:baseline;gap:11px;font-family:var(--mono);font-size:14.5px;padding:4px 0;border-bottom:1px dotted rgba(154,115,40,.2)}
+  .keyrow .kk{color:var(--mid);min-width:100px;font-size:13.5px}
+  .keyrow .kv{color:var(--gold);font-weight:600}
+  .keysec{font-family:var(--sans);font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mid);
+    margin:16px 0 7px;padding-bottom:4px;border-bottom:1px solid rgba(154,115,40,.25);font-weight:600}
+
+  footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;
+    flex-wrap:wrap;gap:10px;font-family:var(--sans);font-size:14px;color:var(--faint)}
+
+  .fixedbar{position:fixed;bottom:0;left:0;right:0;background:rgba(250,249,245,.94);backdrop-filter:blur(10px);
+    border-top:1px solid var(--rule);padding:13px 20px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:50}
+  .fixedbar .tot{font-family:var(--sans);font-size:14.5px;color:var(--mid)}
+  .fixedbar .tot b{color:var(--good)}
+</style>
+
+<style>
+  .crumb{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:14px}
+  .crumb a{font-family:var(--sans);font-size:13.5px;color:var(--faint);text-decoration:none;transition:color .15s}
+  .crumb a:hover{color:var(--accent)}
+  .crumb .sep{color:var(--rule)}
+  .crumb select{font-family:var(--sans);font-size:13.5px;color:var(--ink);background:var(--card);
+    border:1px solid var(--rule);border-radius:6px;padding:4px 9px;cursor:pointer}
+  .crumb .vlink{margin-left:auto;font-family:var(--sans);font-size:13.5px;color:var(--accent);
+    text-decoration:none;border:1px solid var(--accent-line);padding:6px 13px;border-radius:7px}
+  .crumb .vlink:hover{background:var(--accent-soft)}
+  .casenav{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    margin-top:38px;padding-top:18px;border-top:1px solid var(--rule)}
+  .casenav a{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--accent);
+    text-decoration:none;border:1px solid var(--accent-line);padding:9px 17px;border-radius:8px;transition:all .15s}
+  .casenav a:hover{background:var(--accent-soft)}
+  .casenav span.dis{font-family:var(--sans);font-size:14px;color:var(--faint);
+    border:1px solid var(--hair);padding:9px 17px;border-radius:8px}
+  .casenav .dots{display:flex;gap:5px}
+  .casenav .dots i{width:8px;height:8px;border-radius:50%;background:var(--rule);display:block}
+  .casenav .dots i.on{background:var(--accent)}
+  .casenav .dots i.done{background:var(--good)}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<div class="crumb">
+  <a href="../index.html">← all topics</a>
+  <span class="sep">·</span>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Write Transactions</span>
+  <select onchange="location.href=this.value+'.html'"><option value="write-01">01 · Single Beat</option><option value="write-02">02 · Burst (INCR)</option><option value="write-03">03 · AW/W Independence</option><option value="write-04">04 · Multi-ID Reorder</option><option value="write-05">05 · Same-ID Order</option><option value="write-06">06 · FIXED Burst</option><option value="write-07">07 · WRAP Burst</option><option value="write-08">08 · Write Strobes</option><option value="write-09">09 · Narrow Write</option><option value="write-10" selected>10 · Error Response</option></select>
+  <a class="vlink" href="../visual/write.html" target="_blank" rel="noopener">open visual →</a>
+</div>
+
+<header>
+  <div class="topline">
+    <span class="topic">AXI4 Workbook · Case 10 of 10</span>
+    <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
+  </div>
+  <h1>Write Error Responses</h1>
+  <div class="sub">Case 10 of 10 · One BRESP for the whole burst — and what that costs</div>
+  <div class="prog" id="prog"></div>
+  <div class="proglabel" id="proglabel">—</div>
+</header>
+
+<h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
+<div class="bg">
+<p class="lead">A write burst gets exactly one response. However many beats it carried, however far into the burst a fault occurred, the master receives a single two-bit verdict. This case is about what that verdict does and does not tell you.</p>
+
+<h3>The codes</h3>
+<table class="apps">
+<tr><th>Code</th><th>Meaning and who generates it</th></tr>
+<tr><td>OKAY <span class="cfg">2'b00</span></td><td>The write completed, or an agent has taken responsibility for completing it</td></tr>
+<tr><td>EXOKAY <span class="cfg">2'b01</span></td><td>An exclusive write succeeded. Only meaningful with AWLOCK set — see the Exclusive topic</td></tr>
+<tr><td>SLVERR <span class="cfg">2'b10</span></td><td>A slave was reached and the write failed. ECC, a read-only region, a permission violation. <b>The slave generates this</b></td></tr>
+<tr><td>DECERR <span class="cfg">2'b11</span></td><td>No slave decodes that address. <b>The interconnect generates this</b> — nothing was reached</td></tr>
+</table>
+
+<h3>The slave still has to take everything</h3>
+<div class="pull">
+<div class="plabel">The rule</div>
+<p>A slave that has accepted an address must accept all <code>AWLEN+1</code> write beats, through <code>WLAST</code>, and then send exactly one <code>BRESP</code>. It may not stop asserting <code>WREADY</code> to abandon a failing write.</p>
+</div>
+
+<p>The reasoning matches the read side. The master is streaming data and counting beats; the interconnect is holding routing state until <code>WLAST</code> passes. A slave that goes quiet mid-burst leaves the master with beats it cannot deliver and a transaction that never completes — a hang, carrying no information at all, instead of an error the master could have acted on.</p>
+
+<p>This applies even to <code>DECERR</code>. When no slave exists at the address, the interconnect must still sink every write beat before returning the error. It cannot simply drop the transaction, because the master has no way to stop sending.</p>
+
+<h3>What one response costs you</h3>
+<p>A four-beat write where beat 2 fails produces <code>BRESP=SLVERR</code> and nothing else. The master knows the transaction failed. It does not know which beat, how many beats landed, or whether memory is now partially updated.</p>
+
+<div class="mathblock">
+<span class="cmt">// 4-beat write, ECC failure on beat 2</span><br>
+beats 0,1 <span class="cmt">→</span> written to memory<br>
+beat  2   <span class="cmt">→</span> failed<br>
+beat  3   <span class="cmt">→</span> may or may not have been written<br>
+<span class="cmt">─────────────────────────</span><br>
+BRESP <span class="cmt">=</span> <span class="hi">SLVERR</span>  <span class="cmt">// that is everything the master learns</span>
+</div>
+
+<p>So the region is left in an indeterminate state. Recovery cannot be surgical — the master must treat the whole address range as suspect, which usually means rewriting it entirely or marking it invalid.</p>
+
+<h3>Compare the read side</h3>
+<p>A read burst carries <code>RRESP</code> on every beat, so a master knows precisely which words are trustworthy and can consume the good ones. Reads are better instrumented than writes in this one respect, and the reason is structural: the R channel is already carrying a beat, so a response rides along for free. The B channel is separate and would have to be widened into a per-beat channel to match — doubling response traffic to report something the master has usually already moved past.</p>
+
+<h3>The bug this creates</h3>
+<p>Masters that fire and forget — issuing writes without ever asserting <code>BREADY</code> or checking <code>BRESP</code> — are common, and they work perfectly until something fails. Then the failure is completely silent: the data never landed, nothing reported it, and the first symptom is wrong behaviour somewhere far downstream. A master that does not consume its write responses also leaks outstanding-transaction slots and will eventually stall.</p>
+</div>
+
+<h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
+<div class="config">
+  <table><tr><td class="sig">AWID</td><td class="val">4'h1</td><td class="note">transaction identifier</td></tr><tr><td class="sig">AWADDR</td><td class="val">32'h0000_1000</td><td class="note">valid, mapped address</td></tr><tr><td class="sig">AWLEN</td><td class="val">8'h03</td><td class="note">encoded burst length</td></tr><tr><td class="sig">AWSIZE</td><td class="val">3'b011</td><td class="note">encoded transfer size</td></tr><tr><td class="sig">AWBURST</td><td class="val">2'b01</td><td class="note">burst type</td></tr><tr><td class="sig">Fault</td><td class="val">ECC failure</td><td class="note">on the third beat of the burst</td></tr></table>
+  <div class="cite">The address decodes correctly and a slave accepts it. Memory backing the third beat fails its ECC check.</div>
+</div>
+
+<h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
+<div class="predict">
+<ol><li>W beats the slave must accept? <input class="f n" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;Does the fault change that? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>How many B beats result? <input class="f n" data-k="p6"><span class="mark" data-m="p6"></span> &nbsp;Which code? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span></li><li>Does BRESP say which beat failed? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>Which code would appear if no slave decoded this address? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;Generated by whom? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>After the error, what is the state of the target region? <input class="f m" data-k="p4c"><span class="mark" data-m="p4c"></span></li><li>If the slave stopped asserting WREADY to abandon the burst, what would the master see? <textarea class="f" data-k="p5" placeholder="Follow it to the symptom."></textarea><div class="model" data-model="p5"></div></li></ol>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('p')">check section 2</button>
+  <button class="t gold" onclick="showAllAns('p')">show answers</button>
+  <span class="score" id="sc-p"></span>
+</div>
+</div>
+
+<h2><span class="num">3</span> Draw the Waveform <span class="hint">tap cells · high → low → clear</span></h2>
+<div class="wavebox">
+  <div class="wavetools">
+    <span class="lbl">tap a cell to cycle its level</span>
+    <button class="t go" onclick="checkWave()">check waveform</button>
+    <button class="t gold" onclick="revealWave()">show correct</button>
+    <button class="t danger" onclick="clearWave()">clear grid</button>
+  </div>
+  <div class="wavescroll"><table class="wave" id="wave"></table></div>
+  <div class="waveresult" id="wres"></div>
+  <div class="gridnote">All four beats are accepted despite the fault. One BRESP follows, carrying the error.</div>
+</div>
+
+<h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
+<div class="derive"><div class="q">Why a slave cannot abandon a failing write</div><ol class="steps"><li>The master is mid-burst with beats still to send. If WREADY goes low permanently, what can it do? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>Name two structures still holding state for this transaction: <textarea class="f" data-k="d1d" placeholder=""></textarea><div class="model" data-model="d1d"></div></li><li>So abandoning converts a reportable error into what? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Does this reasoning also apply to DECERR? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li></ol><div class="q">One response, and its cost</div><ol class="steps"><li>A 4-beat write fails on beat 2. How many beats does BRESP identify? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>What must the master assume about the target region? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Reads get RRESP per beat. Why can writes not have the same? <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li><li>So write error recovery works at what granularity? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li></ol><div class="q">A master issues writes and never asserts BREADY. Describe both consequences — what it fails to learn, and what happens to it mechanically.</div><textarea class="f" data-k="d3" placeholder="One consequence is about information, the other about resources."></textarea><div class="model" data-model="d3"></div>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('d')">check section 4</button>
+  <button class="t gold" onclick="showAllAns('d')">show answers</button>
+  <span class="score" id="sc-d"></span>
+</div>
+</div>
+
+<h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
+<div class="calc"><div><h4>Burst accounting</h4><div class="formula">the slave honours what it accepted</div><div class="calcrow"><span>beats promised</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>beats accepted</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>B beats</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>beats identified by BRESP</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Response encoding</h4><div class="formula">BRESP[1:0]</div><div class="calcrow"><span>OKAY</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>SLVERR</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>DECERR</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>bytes now indeterminate</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('c')">check section 5</button>
+  <button class="t gold" onclick="showAllAns('c')">show answers</button>
+  <span class="score" id="sc-c"></span>
+</div>
+
+<h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
+<div class="tree"><span class="obs">OBSERVED —</span> master hangs on a write that should have failed<br>
+<span class="arrow">├─</span> <span class="chk">did the slave accept all AWLEN+1 beats?</span> → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">was BVALID ever asserted?</span> → without a response the transaction never retires<br>
+<br>
+<span class="obs">OBSERVED —</span> DECERR on an address believed mapped<br>
+<span class="arrow">├─</span> <span class="chk">address map matches the master's view?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
+<span class="arrow">└─</span> <span class="chk">did the burst run past the mapped region?</span> → check start + (AWLEN+1)×2^AWSIZE<br>
+<br>
+<span class="obs">OBSERVED —</span> data silently missing, no error anywhere<br>
+<span class="arrow">├─</span> <span class="chk">is the master checking BRESP at all?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="arrow">└─</span> <span class="chk">is BREADY tied low or never asserted?</span> → responses never consumed → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span></div>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('t')">check section 6</button>
+  <button class="t gold" onclick="showAllAns('t')">show answers</button>
+  <span class="score" id="sc-t"></span>
+</div>
+
+<h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
+<div class="recall">
+<ol><li>State what a slave must do when a write fault occurs on beat 2 of a 4-beat burst.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain what BRESP=SLVERR tells the master and what it leaves unknown.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Describe both consequences of a master that ignores the B channel entirely.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('r')">reveal section 7</button>
+  <span class="score" id="sc-r"></span>
+</div>
+</div>
+
+<h2><span class="num">✓</span> Answer Key <span class="hint">every auto-graded answer in one place</span></h2>
+<div class="keybox">
+  <div class="keyhdr" onclick="toggleKey()">
+    <span class="kt">Full answer key</span>
+    <span class="kx" id="keyx">tap to reveal</span>
+  </div>
+  <div class="keybody" id="keybody"></div>
+</div>
+
+<div class="casenav">
+  <a href="write-09.html">← Case 09</a>
+  <span class="dots" id="dots"></span>
+  <span class="dis">end of topic →</span>
+</div>
+
+<footer>
+  <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
+  <span>Write Transactions · Case 10</span>
+</footer>
+</div>
+
+<div class="fixedbar">
+  <span class="tot" id="tot">—</span>
+  <button class="t go" onclick="checkAll()">check everything</button>
+  <button class="t" onclick="exportJSON()">export</button>
+  <button class="t" onclick="importJSON()">import</button>
+  <button class="t danger" onclick="resetAll()">reset</button>
+</div>
+
+<script>
+const CID='write-10', TID='write', IDX=10, NCASE=10;
+const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
+const CYCLES=10;
+const ROWS=[{"n": "AWVALID", "t": "bit", "g": "0000000010"}, {"n": "AWREADY", "t": "bit", "g": "0000000010"}, {"n": "AWADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "WVALID", "t": "bit", "g": "0000111100"}, {"n": "WREADY", "t": "bit", "g": "0000111100"}, {"n": "WDATA", "t": "bus"}, {"n": "WLAST", "t": "bit", "g": "0000100000"}, {"n": "", "t": "sep"}, {"n": "BVALID", "t": "bit", "g": "0010000000"}, {"n": "BREADY", "t": "bit", "g": "0010000000"}, {"n": "BRESP", "t": "bus"}];
+const ANS={"p1a": ["4"], "p1b": ["on"], "p6": ["1"], "p2a": ["RREVLS", "rrevls"], "p2b": ["on"], "p4a": ["RRECED", "rreced"], "p4b": ["tcennocretni", "redoced"], "p4c": ["etanimretedni", "tcepsus"], "d1a": ["gnah", "kcoldaed"], "d1b": ["sey"], "d2c": ["enon", "0"], "d2d": ["noitcasnart", "noitcasnart elohw"], "c1": ["4"], "c2": ["4"], "c3": ["1"], "c4": ["0"], "c5": ["00b'2", "00"], "c6": ["01b'2", "01"], "c7": ["11b'2", "11"], "c8": ["23"]};
+const MODEL={"p5": "Nothing useful. The master still has beats to send and no mechanism to cancel them \u2014 AXI has no abort. It holds WVALID with its next beat and waits for a WREADY that never comes, indefinitely.<br><br>The symptom is a hang with no error reported. The write channel is stuck mid-burst, the master's outstanding-transaction slot is never freed, and once its slots are exhausted it stops issuing writes altogether. Every piece of diagnostic information the protocol was ready to carry in BRESP is discarded by abandoning the burst, which is precisely backwards.", "d1c": "Nothing. There is no abort, no cancel and no timeout in the protocol. The master holds WVALID with the next beat and waits. It cannot withdraw the beat, cannot skip to the end, and cannot signal that it has given up \u2014 the handshake only completes when the receiver is ready.", "d1d": "The master's own beat counter and outstanding-transaction slot for AWID=1. And the interconnect's transaction tracker, which holds the routing state for this write until WLAST passes through and the response returns. Any register slice or buffer along the path is also holding a slot.", "d2a": "That the entire address range covered by the burst is indeterminate. Some beats landed, some did not, and BRESP gives no way to distinguish them. Recovery must therefore treat the whole region as suspect \u2014 rewrite it in full, or mark it invalid \u2014 because surgical repair would require knowing which parts survived.", "d2b": "Because the R channel is already carrying a beat of data, so a per-beat response rides along at no extra channel cost. The B channel is separate and carries nothing else; matching the read side would mean one B beat per W beat, roughly doubling response-channel traffic and requiring B to have the same throughput and buffering as W throughout the system.<br><br>And the information would mostly go unused: the master has already sent the data and moved on, so per-beat granularity rarely changes what it can do about a failure.", "d3": "On information: it never learns that any write failed. A SLVERR or DECERR is generated, sits on the B channel, and is never consumed \u2014 so data silently does not land and the first symptom appears far downstream as wrong behaviour with no bus-level trace.<br><br>On resources: outstanding-transaction slots are freed by the response handshake, so a master that never asserts BREADY never frees any. It leaks a slot per write until it exhausts its issue capability and stalls permanently. The two consequences compound \u2014 the master goes silent for a reason it also cannot diagnose.", "r1": "Accept all four beats through WLAST, then send exactly one BRESP carrying SLVERR. It must not stop asserting WREADY to abandon the burst, because the master has no way to cancel the beats it is still holding \u2014 doing so converts a reportable error into a silent hang.", "r2": "It tells the master that a slave was reached and the write failed there, so the problem is inside that slave rather than in the address map. It leaves unknown which beat failed, how many beats landed, and therefore what state the target region is now in \u2014 the whole range must be treated as indeterminate.", "r3": "It never learns about failures, so writes can silently not land with the first symptom appearing far downstream. And it never frees outstanding-transaction slots, since those are released by the response handshake \u2014 so it leaks one per write and eventually stalls completely."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p6": "RRESP count", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p4c": "beat 2 addr"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}]];
+const STATES=['un','hi','lo'];
+const rv=s=>s.split('').reverse().join('');
+let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;
+
+function norm(s){
+  s=String(s||'').trim().toLowerCase();
+  s=s.replace(/^\d+'[hbd]/,'').replace(/0x/g,'').replace(/[\s_',]/g,'');
+  return s.replace(/^0+(?=.)/,'');
+}
+function isOk(k,v){
+  const l=ANS[k]; if(!l) return null;
+  const n=norm(v); if(!n) return false;
+  return l.some(a=>norm(rv(a))===n);
+}
+function ansText(k){ const l=ANS[k]; return l?l.map(a=>rv(a)).join(' / '):''; }
+function showAnsFor(k){
+  const mk=document.querySelector(`[data-m="${k}"]`); if(!mk||!ANS[k])return;
+  let a=mk.parentElement.querySelector(`.ans[data-a="${k}"]`);
+  if(!a){a=document.createElement('span');a.className='ans';a.dataset.a=k;mk.insertAdjacentElement('afterend',a);}
+  a.textContent=ansText(k);
+}
+function buildWave(){
+  let h='<tr><th class="lbl"></th>';
+  for(let c=0;c<CYCLES;c++)h+=`<th>${c}</th>`;
+  h+='</tr>';
+  ROWS.forEach((r,ri)=>{
+    if(r.t==='sep'){h+=`<tr class="sep"><td colspan="${CYCLES+1}"></td></tr>`;return;}
+    h+=`<tr class="${r.t==='bus'?'busrow':''}"><td class="lbl">${r.n}</td>`;
+    for(let c=0;c<CYCLES;c++){
+      h+= r.t==='bus'
+        ? `<td class="cell"><input data-bus="${ri}_${c}" maxlength="8"></td>`
+        : `<td class="cell un" data-w="${ri}_${c}" onclick="tog(this)"><div class="lvl"></div></td>`;
+    }
+    h+='</tr>';
+  });
+  document.getElementById('wave').innerHTML=h;
+  document.querySelectorAll('input[data-bus]').forEach(i=>i.addEventListener('input',()=>{data.bus[i.dataset.bus]=i.value;queue();}));
+}
+function tog(td){
+  td.classList.remove('mism','match');
+  td.querySelectorAll('.gold').forEach(e=>e.remove());
+  const cur=STATES.indexOf([...td.classList].find(c=>STATES.includes(c))||'un');
+  const nx=STATES[(cur+1)%3];
+  STATES.forEach(s=>td.classList.remove(s)); td.classList.add(nx);
+  data.wave[td.dataset.w]=nx; queue();
+}
+function checkWave(){
+  let ok=0,bad=0,blank=0;
+  ROWS.forEach((r,ri)=>{
+    if(!r.g)return;
+    const g=rv(r.g);
+    for(let c=0;c<CYCLES;c++){
+      const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
+      td.classList.remove('mism','match');
+      const cur=data.wave[`${ri}_${c}`]||'un', want=g[c]==='1'?'hi':'lo';
+      if(cur==='un')blank++;
+      else if(cur===want){ok++;td.classList.add('match');}
+      else{bad++;td.classList.add('mism');}
+    }
+  });
+  const el=document.getElementById('wres'); el.classList.add('show');
+  el.innerHTML=`<span style="color:var(--good)">${ok} correct</span> · <span style="color:var(--bad)">${bad} wrong</span> · <span style="color:var(--faint)">${blank} unfilled</span> &nbsp;of ${ok+bad+blank} graded cells`;
+  data.waveScore={ok,bad,blank}; queue(); updateTotal();
+}
+function revealWave(){
+  if(!confirm('Show the correct waveform? A green line marks the right level.'))return;
+  ROWS.forEach((r,ri)=>{
+    if(!r.g)return;
+    const g=rv(r.g);
+    for(let c=0;c<CYCLES;c++){
+      const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
+      td.querySelectorAll('.gold').forEach(e=>e.remove());
+      const d=document.createElement('div'); d.className='gold';
+      d.style.top=(g[c]==='1'?7:25)+'px'; td.appendChild(d);
+    }
+  });
+}
+function clearWave(){
+  if(!confirm('Clear the grid? Written answers stay.'))return;
+  data.wave={};data.bus={};
+  document.querySelectorAll('td[data-w]').forEach(td=>{STATES.forEach(s=>td.classList.remove(s));td.classList.remove('mism','match');td.classList.add('un');td.querySelectorAll('.gold').forEach(e=>e.remove());});
+  document.querySelectorAll('input[data-bus]').forEach(i=>i.value='');
+  document.getElementById('wres').classList.remove('show'); queue();
+}
+function checkSec(pfx){
+  let ok=0,tot=0;
+  document.querySelectorAll(`[data-k^="${pfx}"]`).forEach(el=>{
+    const k=el.dataset.k, r=isOk(k,el.value), mk=document.querySelector(`[data-m="${k}"]`);
+    if(r===null){
+      const m=document.querySelector(`.model[data-model="${k}"]`);
+      if(m&&MODEL[k]){renderModel(m,k);m.classList.add('show');}
+      return;
+    }
+    tot++;
+    el.classList.remove('correct','wrong'); el.classList.add(r?'correct':'wrong');
+    if(mk){mk.className='mark '+(r?'ok':'no');mk.textContent=r?'✓':'✗';}
+    if(r)ok++; else showAnsFor(k);
+  });
+  const s=document.getElementById('sc-'+pfx);
+  if(s)s.innerHTML=tot?`<b>${ok}</b> / ${tot} auto-graded${ok<tot?' — answers shown in gold':''}`:'model answers shown — self-score below';
+  updateTotal();
+}
+function showAllAns(pfx){
+  document.querySelectorAll(`[data-k^="${pfx}"]`).forEach(el=>{
+    const k=el.dataset.k;
+    if(ANS[k])showAnsFor(k);
+    else{const m=document.querySelector(`.model[data-model="${k}"]`);if(m&&MODEL[k]){renderModel(m,k);m.classList.add('show');}}
+  });
+}
+function renderModel(el,k){
+  if(el.dataset.built)return;
+  el.dataset.built='1';
+  const cur=data.self[k];
+  el.innerHTML=`<div class="mlabel">model answer</div><div class="mbody">${MODEL[k]}</div>
+   <div class="selfscore"><span class="sl">how did you do?</span>
+   <button class="s" data-v="2" onclick="selfScore('${k}',2,this)">got it</button>
+   <button class="s" data-v="1" onclick="selfScore('${k}',1,this)">partial</button>
+   <button class="s" data-v="0" onclick="selfScore('${k}',0,this)">missed</button></div>`;
+  if(cur!==undefined){const b=el.querySelector(`button[data-v="${cur}"]`);if(b)b.classList.add('sel');}
+}
+function selfScore(k,v,btn){
+  data.self[k]=v;
+  btn.parentElement.querySelectorAll('button.s').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel'); queue(); updateTotal();
+}
+function checkAll(){['p','d','c','t','r'].forEach(checkSec);checkWave();window.scrollTo({top:0,behavior:'smooth'});}
+function buildKey(){
+  let h='';
+  KEYGROUPS.forEach(([title,map])=>{
+    h+=`<div class="keysec">${title}</div><div class="keygrid">`;
+    Object.entries(map).forEach(([k,lbl])=>{h+=`<div class="keyrow"><span class="kk">${lbl}</span><span class="kv">${ansText(k)}</span></div>`;});
+    h+='</div>';
+  });
+  h+='<div class="keysec">Free-response</div><div style="font-size:14.5px;color:var(--mid);line-height:1.6">Model answers appear inline beneath each box — press <b>check</b> or <b>show answers</b> in sections 2, 4, and 7.</div>';
+  document.getElementById('keybody').innerHTML=h;
+}
+function toggleKey(){
+  const b=document.getElementById('keybody');
+  if(!b.dataset.built){
+    if(!confirm('Reveal the full answer key? Best done after you have committed your own answers.'))return;
+    buildKey(); b.dataset.built='1';
+  }
+  b.classList.toggle('show');
+  document.getElementById('keyx').textContent=b.classList.contains('show')?'tap to hide':'tap to reveal';
+}
+function bindFields(){
+  document.querySelectorAll('[data-k]').forEach(el=>{
+    el.addEventListener('input',()=>{
+      data.fields[el.dataset.k]=el.value;
+      el.classList.toggle('filled',el.value.trim().length>0);
+      el.classList.remove('correct','wrong');
+      const mk=document.querySelector(`[data-m="${el.dataset.k}"]`); if(mk){mk.textContent='';mk.className='mark';}
+      const av=document.querySelector(`.ans[data-a="${el.dataset.k}"]`); if(av)av.remove();
+      queue(); updateProg();
+    });
+  });
+}
+function updateProg(){
+  const all=[...document.querySelectorAll('[data-k]')];
+  const done=all.filter(e=>e.value.trim().length>0).length;
+  const bar=document.getElementById('prog'), secs=['p','d','c','t','r'];
+  if(!bar.children.length)secs.forEach(()=>bar.appendChild(document.createElement('div')));
+  secs.forEach((s,i)=>{
+    const inS=all.filter(e=>e.dataset.k.startsWith(s));
+    bar.children[i].classList.toggle('done',inS.length>0&&inS.every(e=>e.value.trim().length>0));
+  });
+  document.getElementById('proglabel').textContent=`${done} / ${all.length} answered`;
+  return {done,total:all.length};
+}
+function updateTotal(){
+  let ok=0,tot=0;
+  Object.keys(ANS).forEach(k=>{
+    const el=document.querySelector(`[data-k="${k}"]`); if(!el)return;
+    tot++; if(isOk(k,el.value))ok++;
+  });
+  const sv=Object.values(data.self);
+  const st=sv.length?` · self ${sv.filter(v=>v===2).length}/${sv.length} solid`:'';
+  const w=data.waveScore?` · wave ${data.waveScore.ok}✓`:'';
+  document.getElementById('tot').innerHTML=`<b>${ok}</b>/${tot} exact${w}${st}`;
+  return {ok,tot};
+}
+function updateIndex(){
+  try{
+    const p=updateProg(), t=updateTotal();
+    const ix=JSON.parse(localStorage.getItem(INDEX)||'{}');
+    ix[CID]={done:p.done===p.total&&p.total>0, answered:p.done, total:p.total,
+             exact:t.ok, exactTotal:t.tot,
+             missed:Object.entries(data.self).filter(([,v])=>v===0).length,
+             ts:Date.now()};
+    localStorage.setItem(INDEX,JSON.stringify(ix));
+  }catch(e){}
+}
+function renderDots(){
+  let ix={}; try{ix=JSON.parse(localStorage.getItem(INDEX)||'{}');}catch(e){}
+  let h='';
+  for(let i=1;i<=NCASE;i++){
+    const e=ix[`${TID}-${String(i).padStart(2,'0')}`];
+    h+=`<i class="${i===IDX?'on':(e&&e.done?'done':'')}" title="Case ${i}"></i>`;
+  }
+  document.getElementById('dots').innerHTML=h;
+}
+const HAS_CLAUDE=typeof window.storage!=='undefined'&&window.storage&&typeof window.storage.set==='function';
+const MODE=HAS_CLAUDE?'claude':'local';
+const store={
+  async set(k,v){
+    if(HAS_CLAUDE){try{return await window.storage.set(k,v);}catch(e){}}
+    try{localStorage.setItem(k,v);return {key:k};}catch(e){return null;}
+  },
+  async get(k){
+    if(HAS_CLAUDE){try{const r=await window.storage.get(k);if(r)return r;}catch(e){}}
+    try{const v=localStorage.getItem(k);return v!==null?{key:k,value:v}:null;}catch(e){return null;}
+  }
+};
+function setDot(c,t){document.getElementById('dot').className='dot'+(c?' '+c:'');document.getElementById('savetxt').textContent=t;}
+function queue(){setDot('saving','saving…');clearTimeout(saveTimer);saveTimer=setTimeout(save,700);}
+async function save(){
+  try{
+    const r=await store.set(KEY,JSON.stringify(data));
+    updateIndex(); renderDots();
+    setDot(r?'saved':'err',r?('saved · '+MODE):'not saved');
+  }catch(e){setDot('err','save failed');}
+}
+function applyData(){
+  document.querySelectorAll('[data-k]').forEach(el=>{el.value='';el.classList.remove('filled','correct','wrong');});
+  document.querySelectorAll('[data-m]').forEach(m=>{m.textContent='';m.className='mark';});
+  document.querySelectorAll('.ans').forEach(a=>a.remove());
+  document.querySelectorAll('td[data-w]').forEach(td=>{STATES.forEach(x=>td.classList.remove(x));td.classList.remove('mism','match');td.classList.add('un');td.querySelectorAll('.gold').forEach(g=>g.remove());});
+  document.querySelectorAll('input[data-bus]').forEach(i=>i.value='');
+  Object.entries(data.fields).forEach(([k,v])=>{const el=document.querySelector(`[data-k="${k}"]`);if(el){el.value=v;el.classList.toggle('filled',String(v).trim().length>0);}});
+  Object.entries(data.wave).forEach(([k,v])=>{const td=document.querySelector(`td[data-w="${k}"]`);if(td){STATES.forEach(x=>td.classList.remove(x));td.classList.add(v);}});
+  Object.entries(data.bus).forEach(([k,v])=>{const i=document.querySelector(`input[data-bus="${k}"]`);if(i)i.value=v;});
+  document.querySelectorAll('.model').forEach(m=>{const k=m.dataset.model;if(data.self[k]!==undefined&&MODEL[k]){renderModel(m,k);m.classList.add('show');}});
+  updateProg(); updateTotal();
+}
+async function load(){
+  try{
+    const r=await store.get(KEY);
+    if(r&&r.value){
+      data=JSON.parse(r.value);
+      data.fields=data.fields||{};data.wave=data.wave||{};data.bus=data.bus||{};data.self=data.self||{};
+      applyData(); setDot('saved','restored · '+MODE);
+    } else {setDot('','new sheet · '+MODE);updateProg();updateTotal();}
+  }catch(e){setDot('','new sheet · '+MODE);updateProg();updateTotal();}
+  renderDots();
+}
+function exportJSON(){
+  const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+  a.download='axi4-'+CID+'.json'; a.click();
+}
+function importJSON(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=e=>{
+    const f=e.target.files[0]; if(!f)return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const d=JSON.parse(rd.result); if(!d||typeof d!=='object')throw 0;
+        data={fields:d.fields||{},wave:d.wave||{},bus:d.bus||{},self:d.self||{}};
+        if(d.waveScore)data.waveScore=d.waveScore;
+        applyData(); queue(); alert('Imported — '+Object.keys(data.fields).length+' fields restored.');
+      }catch(err){alert('Could not read that file. Is it a workbook export?');}
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+}
+function resetAll(){
+  if(!confirm('Erase all answers, the grid, and your self-scores for this case?'))return;
+  data={fields:{},wave:{},bus:{},self:{}};
+  applyData();
+  document.querySelectorAll('.model').forEach(m=>m.classList.remove('show'));
+  document.getElementById('wres').classList.remove('show');
+  document.querySelectorAll('.score').forEach(s=>s.textContent='');
+  const kb=document.getElementById('keybody'); kb.classList.remove('show'); kb.dataset.built=''; kb.innerHTML='';
+  document.getElementById('keyx').textContent='tap to reveal';
+  queue();
+}
+buildWave(); bindFields(); load();
+</script>
+</body>
+</html>
