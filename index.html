@@ -115,6 +115,7 @@
 
 <script>
 const IDX='axi4wb:index';
+const WB_BUILT={"read": 2};
 const TOPICS=[
   {id:'read', name:'Read Transactions', n:8, hue:'#2fb8d4',
    desc:'Address and data channels, burst types, RLAST, byte lanes, error responses.',
@@ -143,6 +144,7 @@ function render(){
       `<span class="${isDone(t.id,i)?'on':''}"></span>`).join('');
     const done=Array.from({length:t.n}).filter((_,i)=>isDone(t.id,i)).length;
     const last=(()=>{try{return localStorage.getItem('axi4:last:'+t.id)}catch(e){return null}})();
+    const wbReady=(WB_BUILT[t.id]||0);
     return `<div class="topic" style="border-top:3px solid ${t.hue}">
       <div class="thead">
         <div class="tname">${t.name}</div>
@@ -152,7 +154,7 @@ function render(){
       <div class="tbar">${bars}</div>
       <div class="tacts">
         <a href="${t.visual}">Open visual</a>
-        <a class="dim" href="#" onclick="return false" title="workbooks coming next">Workbooks</a>
+        <a class="${wbReady?'':'dim'}" href="${wbReady?('workbook/'+t.id+'-01.html'):'#'}" ${wbReady?'':'onclick="return false"'} title="${wbReady?'':'not written yet'}">Workbooks${wbReady&&wbReady<t.n?` (${wbReady})`:''}</a>
       </div>
     </div>`;
   }).join('');
