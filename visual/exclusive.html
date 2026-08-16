@@ -44,6 +44,8 @@
   a.wblink{font-family:var(--sans);font-size:13.5px;color:var(--hue);text-decoration:none;
     border:1px solid var(--rule);padding:6px 13px;border-radius:7px;transition:all .15s;white-space:nowrap}
   a.wblink:hover{border-color:var(--hue);background:color-mix(in srgb,var(--hue) 10%,transparent)}
+  a.wblink.off{color:var(--faint);border-style:dashed;cursor:default}
+  a.wblink.off:hover{border-color:var(--rule);background:transparent}
 
   .wavecard{border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:var(--sunk);margin-bottom:18px}
   .wavehdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 14px 6px}
@@ -801,6 +803,7 @@ const SCENARIOS = [
   },
 ];
 
+const WB_READY={"read-01": 1, "read-02": 1};
 const TOPIC='exclusive';
 const LABEL={"master": "MASTER", "slave": "SLAVE", "handshake": "HANDSHAKE", "data": "ANALYSIS", "stall": "KEY INSIGHT", "complete": "RESULT"};
 
@@ -960,7 +963,19 @@ function renderDetail(){
 function render(){
   const s=SCENARIOS[si];
   document.getElementById('scensub').textContent=s.subtitle;
-  document.getElementById('wblink').href=`../workbook/${TOPIC}-${String(si+1).padStart(2,'0')}.html`;
+  const wbid=`${TOPIC}-${String(si+1).padStart(2,'0')}`;
+  const wb=document.getElementById('wblink');
+  if(WB_READY[wbid]){
+    wb.href=`../workbook/${wbid}.html`;
+    wb.textContent='open workbook →';
+    wb.classList.remove('off');
+    wb.removeAttribute('title');
+  } else {
+    wb.removeAttribute('href');
+    wb.textContent='workbook coming';
+    wb.classList.add('off');
+    wb.title='This workbook has not been written yet';
+  }
   document.getElementById('fnote').textContent=`Case ${si+1} of ${SCENARIOS.length} — ${s.tab}`;
   try{ localStorage.setItem('axi4:last:'+TOPIC, String(si)); }catch(e){}
   renderTabs(); drawWave(); renderPhases(); renderDetail();
