@@ -115,7 +115,7 @@
 
 <script>
 const IDX='axi4wb:index';
-const WB_BUILT={"ordering": 10, "read": 8, "write": 10};
+const WB_BUILT={"exclusive": 8, "ordering": 10, "read": 8, "write": 10};
 const TOPICS=[
   {id:'read', name:'Read Transactions', n:8, hue:'#2fb8d4',
    desc:'Address and data channels, burst types, RLAST, byte lanes, error responses.',
@@ -154,7 +154,7 @@ function render(){
       <div class="tbar">${bars}</div>
       <div class="tacts">
         <a href="${t.visual}">Open visual</a>
-        <a class="${wbReady?'':'dim'}" href="${wbReady?('workbook/'+t.id+'-01.html'):'#'}" ${wbReady?'':'onclick="return false"'} title="${wbReady?'':'not written yet'}">Workbooks${wbReady&&wbReady<t.n?` (${wbReady})`:''}</a>
+        <a class="${wbReady?'':'dim'}" href="${wbReady?('workbook/'+t.id+'-01.html'):'#'}" ${wbReady?'':'onclick="return false"'} title="${wbReady?'':'not written yet'}">Workbooks</a>
       </div>
     </div>`;
   }).join('');

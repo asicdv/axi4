@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AXI4 Workbook — Contention — One Master Loses</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
+<style>
+  :root{
+    --paper:#faf9f5; --card:#fffefb; --card2:#f5f3ec; --sunk:#f0eee5;
+    --ink:#1f1e1d; --mid:#6b6862; --faint:#9a968d;
+    --rule:#e3dfd3; --hair:#ece9df;
+    --accent:#c15f3c; --accent-soft:#f7ece7; --accent-line:#e0b9a7;
+    --good:#3f7d5f; --good-soft:#eef5f0;
+    --bad:#b0453a; --bad-soft:#faeeec;
+    --gold:#9a7328; --gold-soft:#f8f2e4;
+    --serif:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--serif);font-size:18px;line-height:1.66;
+    padding:34px 30px 100px;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+
+  /* ── header ── */
+  header{border-bottom:1px solid var(--rule);padding-bottom:16px;margin-bottom:8px}
+  .topline{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .topic{font-family:var(--sans);font-size:13px;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .savestate{font-family:var(--sans);font-size:13px;color:var(--faint);display:flex;align-items:center;gap:6px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--faint);transition:background .3s}
+  .dot.saving{background:var(--gold)}.dot.saved{background:var(--good)}.dot.err{background:var(--bad)}
+  h1{font-family:var(--serif);font-size:34px;font-weight:600;margin:14px 0 4px;letter-spacing:-.015em;line-height:1.18}
+  .sub{font-size:17px;color:var(--mid);font-style:italic}
+  .prog{display:flex;gap:5px;margin:16px 0 5px}
+  .prog div{flex:1;height:3px;border-radius:2px;background:var(--rule);transition:background .3s}
+  .prog div.done{background:var(--accent)}
+  .proglabel{font-family:var(--sans);font-size:13px;color:var(--faint);text-align:right}
+
+  /* ── section headings ── */
+  h2{
+    font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--accent);margin:40px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--hair);
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap
+  }
+  h2 .num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;
+    background:var(--accent-soft);color:var(--accent);font-size:12px;flex-shrink:0;border:1px solid var(--accent-line)}
+  h2 .hint{margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;font-size:14px;color:var(--faint);font-style:italic;font-family:var(--serif)}
+
+  /* ── background prose ── */
+  @media(min-width:1000px){.bg .cols{column-count:2;column-gap:46px}.bg .cols h3{break-after:avoid}.bg .cols p{break-inside:avoid}}
+  .bg h3{font-family:var(--serif);font-size:20px;font-weight:600;margin:22px 0 6px;letter-spacing:-.01em}
+  .bg h3:first-child{margin-top:0}
+  .bg p{margin:0 0 12px}
+  .lead{font-size:20px;line-height:1.58;color:var(--ink)}
+  .bg .mono,code{font-family:var(--mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:3px;color:var(--ink)}
+
+  .pull{border-left:3px solid var(--accent-line);background:var(--accent-soft);padding:13px 17px;margin:18px 0;border-radius:0 6px 6px 0}
+  .pull p{margin:0;font-size:17.5px}
+  .pull .plabel{font-family:var(--sans);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:5px}
+
+  table.apps{width:100%;border-collapse:collapse;margin:18px 0;font-size:16.5px}
+  table.apps th{font-family:var(--sans);font-size:12.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mid);
+    text-align:left;font-weight:600;padding:0 12px 7px 0;border-bottom:1px solid var(--rule)}
+  table.apps td{padding:9px 12px 9px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+  table.apps td:first-child{font-weight:600;white-space:nowrap;width:1%}
+  table.apps td .cfg{font-family:var(--mono);font-size:14px;color:var(--accent);display:block;margin-top:2px;font-weight:400}
+
+  .mathblock{background:var(--card2);border:1px solid var(--rule);border-radius:7px;padding:17px 21px;margin:18px 0;font-family:var(--mono);font-size:15px;line-height:1.9;color:var(--ink)}
+  .mathblock .cmt{color:var(--faint)}
+  .mathblock .hi{color:var(--accent);font-weight:600}
+
+  /* ── config ── */
+  .config{border:1px solid var(--rule);border-left:3px solid var(--ink);padding:15px 18px;background:var(--card);border-radius:0 7px 7px 0}
+  .config table{width:100%;border-collapse:collapse}
+  .config td{font-family:var(--mono);font-size:15px;padding:4px 12px 4px 0;vertical-align:baseline}
+  .config td.sig{font-weight:600;width:112px}
+  .config td.val{width:145px;color:var(--accent)}
+  .config td.note{font-family:var(--serif);font-size:16px;color:var(--mid);font-style:italic}
+  .cite{font-size:15px;color:var(--faint);font-style:italic;margin-top:9px}
+
+  /* ── predict ── */
+  .predict{border:1px dashed var(--rule);border-radius:8px;padding:17px 20px;background:var(--card)}
+  .predict ol,.recall ol{margin:0;padding-left:20px}
+  .predict li{margin-bottom:18px;font-size:17.5px}
+  .predict li::marker,.recall li::marker{color:var(--faint);font-family:var(--sans);font-size:15px}
+
+  input.f,textarea.f{
+    background:var(--sunk);border:none;border-bottom:1.5px solid var(--rule);color:var(--ink);
+    font-family:var(--mono);font-size:15px;padding:5px 10px;border-radius:4px 4px 0 0;outline:none;transition:all .18s
+  }
+  input.f:focus,textarea.f:focus{border-bottom-color:var(--accent);background:#fff}
+  input.f.filled,textarea.f.filled{border-bottom-color:var(--faint)}
+  input.f.correct{border-bottom-color:var(--good);background:var(--good-soft)}
+  input.f.wrong{border-bottom-color:var(--bad);background:var(--bad-soft)}
+  input.n{width:74px}input.m{width:148px}input.w{width:100%;max-width:420px}
+  textarea.f{display:block;width:100%;resize:vertical;min-height:52px;line-height:1.6;margin:7px 0;
+    border-radius:5px;border:1px solid var(--rule);border-bottom-width:1.5px;font-family:var(--serif);font-size:17px}
+  .mark{font-family:var(--mono);font-size:15px;margin-left:7px;font-weight:700}
+  .mark.ok{color:var(--good)}.mark.no{color:var(--bad)}
+  .ans{display:inline-block;font-family:var(--mono);font-size:14px;color:var(--gold);margin-left:6px;
+    padding:1px 9px;border:1px solid rgba(154,115,40,.35);border-radius:11px;background:var(--gold-soft);white-space:nowrap}
+  .ans::before{content:'→ ';opacity:.55}
+
+  /* ── buttons ── */
+  button.t{background:transparent;border:1px solid var(--rule);color:var(--mid);font-family:var(--sans);
+    font-size:14px;padding:6px 15px;border-radius:6px;cursor:pointer;transition:all .15s}
+  button.t:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  button.t.go{border-color:var(--accent-line);color:var(--accent)}
+  button.t.go:hover{background:var(--accent-soft)}
+  button.t.gold{border-color:rgba(154,115,40,.4);color:var(--gold)}
+  button.t.gold:hover{background:var(--gold-soft);border-color:var(--gold);color:var(--gold)}
+  button.t.danger:hover{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+
+  /* ── waveform ── */
+  .wavebox{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--card)}
+  .wavetools{display:flex;gap:7px;padding:11px 13px;border-bottom:1px solid var(--hair);flex-wrap:wrap;align-items:center;background:var(--card2)}
+  .wavetools .lbl{font-family:var(--sans);font-size:13.5px;color:var(--faint)}
+  .wavescroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.wave{border-collapse:collapse;font-family:var(--mono);font-size:13px;min-width:820px;width:100%}
+  table.wave th{font-weight:400;color:var(--faint);font-size:13px;padding:7px 0 5px;border-bottom:1px solid var(--rule);text-align:center}
+  table.wave th.lbl{text-align:right;padding-right:13px;width:104px}
+  table.wave td.lbl{text-align:right;padding-right:13px;font-size:13.5px;font-weight:600;border-right:1px solid var(--rule);white-space:nowrap;width:104px}
+  td.cell{height:34px;border-right:1px dotted var(--hair);border-bottom:1px solid var(--hair);cursor:pointer;position:relative;padding:0;min-width:58px}
+  td.cell:hover{background:var(--accent-soft)}
+  td.cell .lvl{position:absolute;left:0;right:0;height:2px;background:var(--accent);transition:top .12s,background .12s}
+  td.cell.hi .lvl{top:7px}td.cell.lo .lvl{top:25px}
+  td.cell.un .lvl{top:16px;background:var(--rule);height:1px}
+  td.cell.mism{background:var(--bad-soft);box-shadow:inset 0 0 0 1px rgba(176,69,58,.4)}
+  td.cell.match{background:var(--good-soft)}
+  td.cell .gold{position:absolute;left:0;right:0;height:2px;background:var(--good);opacity:.6}
+  tr.busrow td.cell{background:rgba(0,0,0,.014)}
+  tr.busrow input{width:100%;height:32px;background:transparent;border:none;color:var(--gold);
+    font-family:var(--mono);font-size:13px;text-align:center;outline:none;padding:0 2px}
+  tr.busrow input:focus{background:var(--gold-soft)}
+  tr.sep td{height:7px;border:none;background:none}
+  .gridnote{font-size:15px;color:var(--faint);font-style:italic;padding:10px 13px;border-top:1px solid var(--hair)}
+  .waveresult{padding:13px 16px;border-top:1px solid var(--hair);font-family:var(--sans);font-size:15px;display:none;background:var(--card2)}
+  .waveresult.show{display:block}
+
+  /* ── derive ── */
+  .q{font-weight:600;margin:24px 0 10px;font-size:19px}
+  .q:first-child{margin-top:0}
+  .steps{margin:8px 0 16px;padding-left:0;list-style:none;counter-reset:s}
+  .steps li{counter-increment:s;padding:11px 0 11px 36px;position:relative;border-bottom:1px dotted var(--hair);font-size:17.5px}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:11px;font-family:var(--sans);font-size:12px;
+    color:var(--faint);border:1px solid var(--rule);width:21px;height:21px;line-height:19px;text-align:center;border-radius:4px}
+
+  /* ── calc ── */
+  .calc{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+  @media(max-width:900px){.calc{grid-template-columns:1fr}}
+  @media(max-width:700px){body{padding:22px 16px 100px;font-size:17px}h1{font-size:28px}}
+  .calc>div{padding:15px 17px;border-right:1px solid var(--hair);background:var(--card)}
+  .calc>div:last-child{border-right:none}
+  .calc h4{font-family:var(--sans);font-size:13px;font-weight:600;margin:0 0 9px;color:var(--mid);text-transform:uppercase;letter-spacing:.07em}
+  .formula{font-family:var(--mono);font-size:14.5px;color:var(--mid);background:var(--sunk);padding:8px 11px;
+    margin-bottom:11px;border-left:2px solid var(--rule);border-radius:0 5px 5px 0}
+  .calcrow{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-size:15px;padding:6px 0}
+  .calcrow>span:first-child{color:var(--mid);min-width:76px;font-size:14px}
+  .calcrow input{flex:1;min-width:0}
+
+  /* ── tree ── */
+  .tree{font-family:var(--mono);font-size:15px;line-height:2.2;border:1px solid var(--rule);border-radius:8px;padding:16px 18px;background:var(--card)}
+  .tree .obs{font-weight:700;color:var(--accent)}
+  .tree .arrow{color:var(--faint)}
+  .tree .chk{color:var(--ink);font-weight:600}
+  .tree input{width:240px}
+
+  .recall li{margin-bottom:21px;font-size:17.5px}
+
+  /* ── model answer ── */
+  .model{display:none;margin:9px 0 5px;border:1px solid rgba(154,115,40,.28);border-left:3px solid var(--gold);
+    border-radius:0 7px 7px 0;background:var(--gold-soft);padding:14px 17px}
+  .model.show{display:block}
+  .model .mlabel{font-family:var(--sans);font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px}
+  .model .mbody{font-size:17px;line-height:1.64}
+  .selfscore{display:flex;gap:7px;margin-top:13px;align-items:center;flex-wrap:wrap}
+  .selfscore .sl{font-family:var(--sans);font-size:13.5px;color:var(--faint);margin-right:2px}
+  button.s{background:transparent;border:1px solid var(--rule);color:var(--mid);font-family:var(--sans);
+    font-size:13.5px;padding:5px 14px;border-radius:14px;cursor:pointer;transition:all .15s}
+  button.s:hover{border-color:var(--mid)}
+  button.s.sel[data-v="2"]{border-color:var(--good);color:var(--good);background:var(--good-soft)}
+  button.s.sel[data-v="1"]{border-color:var(--gold);color:var(--gold);background:var(--gold-soft)}
+  button.s.sel[data-v="0"]{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+
+  .secbar{display:flex;gap:8px;align-items:center;margin-top:13px;flex-wrap:wrap}
+  .score{font-family:var(--sans);font-size:14.5px;color:var(--faint)}
+  .score b{color:var(--ink)}
+
+  /* ── answer key ── */
+  .keybox{border:1px solid rgba(154,115,40,.3);border-radius:8px;background:var(--gold-soft);overflow:hidden}
+  .keyhdr{padding:14px 17px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+  .keyhdr .kt{font-family:var(--sans);font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);font-weight:600}
+  .keyhdr .kx{margin-left:auto;font-size:15px;color:var(--faint);font-style:italic}
+  .keybody{display:none;padding:0 17px 17px}
+  .keybody.show{display:block}
+  .keygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:7px 24px}
+  .keyrow{display:flex;align-items:baseline;gap:11px;font-family:var(--mono);font-size:14.5px;padding:4px 0;border-bottom:1px dotted rgba(154,115,40,.2)}
+  .keyrow .kk{color:var(--mid);min-width:100px;font-size:13.5px}
+  .keyrow .kv{color:var(--gold);font-weight:600}
+  .keysec{font-family:var(--sans);font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mid);
+    margin:16px 0 7px;padding-bottom:4px;border-bottom:1px solid rgba(154,115,40,.25);font-weight:600}
+
+  footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;
+    flex-wrap:wrap;gap:10px;font-family:var(--sans);font-size:14px;color:var(--faint)}
+
+  .fixedbar{position:fixed;bottom:0;left:0;right:0;background:rgba(250,249,245,.94);backdrop-filter:blur(10px);
+    border-top:1px solid var(--rule);padding:13px 20px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;z-index:50}
+  .fixedbar .tot{font-family:var(--sans);font-size:14.5px;color:var(--mid)}
+  .fixedbar .tot b{color:var(--good)}
+</style>
+
+<style>
+  .crumb{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:14px}
+  .crumb a{font-family:var(--sans);font-size:13.5px;color:var(--faint);text-decoration:none;transition:color .15s}
+  .crumb a:hover{color:var(--accent)}
+  .crumb .sep{color:var(--rule)}
+  .crumb select{font-family:var(--sans);font-size:13.5px;color:var(--ink);background:var(--card);
+    border:1px solid var(--rule);border-radius:6px;padding:4px 9px;cursor:pointer}
+  .crumb .vlink{margin-left:auto;font-family:var(--sans);font-size:13.5px;color:var(--accent);
+    text-decoration:none;border:1px solid var(--accent-line);padding:6px 13px;border-radius:7px}
+  .crumb .vlink:hover{background:var(--accent-soft)}
+  .casenav{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    margin-top:38px;padding-top:18px;border-top:1px solid var(--rule)}
+  .casenav a{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--accent);
+    text-decoration:none;border:1px solid var(--accent-line);padding:9px 17px;border-radius:8px;transition:all .15s}
+  .casenav a:hover{background:var(--accent-soft)}
+  .casenav span.dis{font-family:var(--sans);font-size:14px;color:var(--faint);
+    border:1px solid var(--hair);padding:9px 17px;border-radius:8px}
+  .casenav .dots{display:flex;gap:5px}
+  .casenav .dots i{width:8px;height:8px;border-radius:50%;background:var(--rule);display:block}
+  .casenav .dots i.on{background:var(--accent)}
+  .casenav .dots i.done{background:var(--good)}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<div class="crumb">
+  <a href="../index.html">← all topics</a>
+  <span class="sep">·</span>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Exclusive Access</span>
+  <select onchange="location.href=this.value+'.html'"><option value="exclusive-01">01 · Success Path</option><option value="exclusive-02" selected>02 · Contention Fail</option><option value="exclusive-03">03 · Normal Clears</option><option value="exclusive-04">04 · Retry Loop</option><option value="exclusive-05">05 · Exclusive Burst</option><option value="exclusive-06">06 · No Monitor</option><option value="exclusive-07">07 · False Failure</option><option value="exclusive-08">08 · AXI3 vs AXI4</option></select>
+  <a class="vlink" href="../visual/exclusive.html" target="_blank" rel="noopener">open visual →</a>
+</div>
+
+<header>
+  <div class="topline">
+    <span class="topic">AXI4 Workbook · Case 02 of 8</span>
+    <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
+  </div>
+  <h1>Contention — One Master Loses</h1>
+  <div class="sub">Case 2 of 8 · Two masters race, the monitor kills one reservation, nobody corrupts anything</div>
+  <div class="prog" id="prog"></div>
+  <div class="proglabel" id="proglabel">—</div>
+</header>
+
+<h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
+<div class="bg">
+<p class="lead">The success path shows the mechanism working. This case shows it doing its actual job: two masters race for the same lock, one wins, and the loser is told clearly enough that it can recover.</p>
+
+<h3>The sequence</h3>
+<p>Both cores issue exclusive reads and both receive <code>EXOKAY</code>. That is not a contradiction — the monitor can hold a reservation for each ID simultaneously. Both see the lock free, and both decide to take it.</p>
+
+<div class="mathblock">
+C0 excl read <span class="cmt">→ EXOKAY, reservation set for ID 3</span><br>
+C1 excl read <span class="cmt">→ EXOKAY, reservation set for ID 8</span><br>
+<span class="cmt">// both reservations valid at once — legal</span><br>
+<br>
+C1 excl write <span class="cmt">→</span> <span class="hi">EXOKAY</span> <span class="cmt">— write performed, C0's reservation killed</span><br>
+C0 excl write <span class="cmt">→</span> <span class="hi">OKAY</span>   <span class="cmt">— reservation gone, write NOT performed</span>
+</div>
+
+<h3>Why the loser's write does nothing</h3>
+<div class="pull">
+<div class="plabel">The critical property</div>
+<p>A failed exclusive write is a no-op. Memory is left exactly as if the losing master had never attempted it. That is what makes retry safe — every iteration either takes full effect or none.</p>
+</div>
+
+<p>Contrast with plain writes, where the loser's write would have landed on top of the winner's and destroyed it. The lost-update problem is not that two masters raced; it is that both writes took effect. Exclusive access does not prevent the race — it ensures only one write survives it.</p>
+
+<h3>Reading the outcome correctly</h3>
+<p>Core 0 receives <code>BRESP=OKAY</code>. Nothing failed in the sense of an error: the bus worked, the slave worked, no protocol rule was broken. What happened is that the reservation was invalidated, so the conditional write was declined.</p>
+
+<p>A driver that checks only for <code>SLVERR</code> and <code>DECERR</code> sees no error and concludes the write succeeded. It then believes it holds a lock that core 1 actually holds. This single misreading is the most common exclusive-access bug in real drivers.</p>
+
+<h3>Which master wins</h3>
+<p>Whichever exclusive write reaches the monitor first. That depends on arbitration, interconnect latency, and how quickly each core computed its new value — none of which is under software control and none of which is fair by construction.</p>
+
+<table class="apps">
+<tr><th>Consequence</th><th>What it means in practice</th></tr>
+<tr><td>No fairness guarantee</td><td>A master can lose repeatedly. Nothing in AXI4 prevents starvation</td></tr>
+<tr><td>Contention costs iterations</td><td>Under heavy contention most attempts fail and the retry loop dominates</td></tr>
+<tr><td>Backoff helps</td><td>Software often adds a delay after a failure to reduce collision probability</td></tr>
+<tr><td>Design out contention</td><td>Per-core locks, sharding, or lock-free structures are usually better than a heavily contended single lock</td></tr>
+</table>
+
+<h3>What to look for in a trace</h3>
+<p>Two reservations set, one <code>EXOKAY</code> write, one <code>OKAY</code> write, and memory holding only the winner's value. If you instead see both writes take effect, exclusive access is not actually engaged — check that <code>AWLOCK</code> is asserted and that <code>RRESP</code> was <code>EXOKAY</code> on the reads.</p>
+</div>
+
+<h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
+<div class="config">
+  <table><tr><td class="sig">Core 0 — ARID/AWID</td><td class="val">4'h3</td><td class="note">first to read</td></tr><tr><td class="sig">Core 1 — ARID/AWID</td><td class="val">4'h8</td><td class="note">second to read, first to write</td></tr><tr><td class="sig">Address</td><td class="val">32'h0000_1000</td><td class="note">contended lock variable</td></tr><tr><td class="sig">Both reads</td><td class="val">ARLOCK=1</td><td class="note">both receive EXOKAY</td></tr><tr><td class="sig">Both writes</td><td class="val">AWLOCK=1, data=TAKEN</td><td class="note">both attempt to acquire</td></tr><tr><td class="sig">Memory before</td><td class="val">FREE</td><td class="note">lock is available</td></tr></table>
+  <div class="cite">Core 1 issues its exclusive write first. Core 0 attempts afterwards.</div>
+</div>
+
+<h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
+<div class="predict">
+<ol><li>Can both cores hold a valid reservation at once? <input class="f m" data-k="p1a"><span class="mark" data-m="p1a"></span></li><li>BRESP for Core 1? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;For Core 0? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>Final memory value? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;How many writes took effect? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>What killed Core 0's reservation? <input class="f m" data-k="p4c"><span class="mark" data-m="p4c"></span></li><li>Is Core 0's OKAY an error? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li><li>With plain reads and writes instead, what would memory hold and why is that worse? <textarea class="f" data-k="p5" placeholder="Name the classic problem."></textarea><div class="model" data-model="p5"></div></li></ol>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('p')">check section 2</button>
+  <button class="t gold" onclick="showAllAns('p')">show answers</button>
+  <span class="score" id="sc-p"></span>
+</div>
+</div>
+
+<h2><span class="num">3</span> Draw the Waveform <span class="hint">tap cells · high → low → clear</span></h2>
+<div class="wavebox">
+  <div class="wavetools">
+    <span class="lbl">tap a cell to cycle its level</span>
+    <button class="t go" onclick="checkWave()">check waveform</button>
+    <button class="t gold" onclick="revealWave()">show correct</button>
+    <button class="t danger" onclick="clearWave()">clear grid</button>
+  </div>
+  <div class="wavescroll"><table class="wave" id="wave"></table></div>
+  <div class="waveresult" id="wres"></div>
+  <div class="gridnote">Four graded rows. Watch Mon C0 go from valid to KILLED at the moment Core 1 wins.</div>
+</div>
+
+<h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
+<div class="derive"><div class="q">Why the loser causes no damage</div><ol class="steps"><li>Core 0's exclusive write returns OKAY. What happened to memory? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>With plain writes, what would have happened to Core 1's value? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>Name the classic problem that describes: <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>So exclusive access does not prevent the race — what does it prevent? <textarea class="f" data-k="d1d" placeholder=""></textarea><div class="model" data-model="d1d"></div></li></ol><div class="q">Fairness and starvation</div><ol class="steps"><li>Which master wins? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Does AXI4 guarantee that a repeatedly losing master eventually succeeds? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Name the software technique that reduces repeated collisions: <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>Under heavy contention, what dominates the cost? <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">A driver checks the write response for SLVERR and DECERR, finds neither, and proceeds. Describe exactly what goes wrong, and explain why this bug survives code review.</div><textarea class="f" data-k="d3" placeholder="What does the response actually say?"></textarea><div class="model" data-model="d3"></div>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('d')">check section 4</button>
+  <button class="t gold" onclick="showAllAns('d')">show answers</button>
+  <span class="score" id="sc-d"></span>
+</div>
+</div>
+
+<h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
+<div class="calc"><div><h4>Contention accounting</h4><div class="formula">two masters, one address</div><div class="calcrow"><span>reservations set</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>exclusive writes attempted</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>writes performed</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>EXOKAY responses</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Compare with plain accesses</h4><div class="formula">no exclusive access used</div><div class="calcrow"><span>writes performed</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>final values possible</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>updates lost</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>fairness guarantees in AXI4</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('c')">check section 5</button>
+  <button class="t gold" onclick="showAllAns('c')">show answers</button>
+  <span class="score" id="sc-c"></span>
+</div>
+
+<h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
+<div class="tree"><span class="obs">OBSERVED —</span> two masters both proceed as lock owner<br>
+<span class="arrow">├─</span> <span class="chk">is the driver checking for EXOKAY specifically?</span> → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">only checking SLVERR/DECERR?</span> → OKAY read as success → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
+<br>
+<span class="obs">OBSERVED —</span> both writes visibly took effect in memory<br>
+<span class="arrow">├─</span> <span class="chk">was AWLOCK asserted on both?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="arrow">└─</span> <span class="chk">did the reads return EXOKAY?</span> → without it there is no reservation<br>
+<br>
+<span class="obs">OBSERVED —</span> one core acquires the lock far less often than the other<br>
+<span class="arrow">├─</span> <span class="chk">any fairness mechanism present?</span> → AXI4 provides none → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
+<span class="arrow">└─</span> <span class="chk">is backoff implemented after a failed attempt?</span> → reduces repeated collision</div>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('t')">check section 6</button>
+  <button class="t gold" onclick="showAllAns('t')">show answers</button>
+  <span class="score" id="sc-t"></span>
+</div>
+
+<h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
+<div class="recall">
+<ol><li>Explain why a failed exclusive write leaves memory untouched and why that matters.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Say which master wins a contended exclusive sequence and what that implies about fairness.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Describe the driver bug caused by checking only for error codes.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<div class="secbar">
+  <button class="t go" onclick="checkSec('r')">reveal section 7</button>
+  <span class="score" id="sc-r"></span>
+</div>
+</div>
+
+<h2><span class="num">✓</span> Answer Key <span class="hint">every auto-graded answer in one place</span></h2>
+<div class="keybox">
+  <div class="keyhdr" onclick="toggleKey()">
+    <span class="kt">Full answer key</span>
+    <span class="kx" id="keyx">tap to reveal</span>
+  </div>
+  <div class="keybody" id="keybody"></div>
+</div>
+
+<div class="casenav">
+  <a href="exclusive-01.html">← Case 01</a>
+  <span class="dots" id="dots"></span>
+  <a href="exclusive-03.html">Case 03 →</a>
+</div>
+
+<footer>
+  <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
+  <span>Exclusive Access · Case 02</span>
+</footer>
+</div>
+
+<div class="fixedbar">
+  <span class="tot" id="tot">—</span>
+  <button class="t go" onclick="checkAll()">check everything</button>
+  <button class="t" onclick="exportJSON()">export</button>
+  <button class="t" onclick="importJSON()">import</button>
+  <button class="t danger" onclick="resetAll()">reset</button>
+</div>
+
+<script>
+const CID='exclusive-02', TID='exclusive', IDX=2, NCASE=8;
+const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
+const CYCLES=13;
+const ROWS=[{"n": "C0 ARLOCK", "t": "bus"}, {"n": "C0 RRESP", "t": "bus"}, {"n": "C1 ARLOCK", "t": "bus"}, {"n": "C1 RRESP", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "Mon C0", "t": "bus", "gv": [null, ["TES", "\u2713 TES"], ["dilav"], ["dilav"], ["dilav"], ["dilav"], ["dilav"], ["DELLIK", "!DELLIK"], ["dilavni"], ["LIAF"], null, null, null]}, {"n": "Mon C1", "t": "bus", "gv": [null, null, null, ["TES", "\u2713 TES"], ["dilav"], ["KCEHC"], ["NIW", "\u2713 NIW"], ["deraelc", "raelc"], null, null, null, null, null]}, {"n": "", "t": "sep"}, {"n": "C1 BRESP", "t": "bus", "gv": [null, null, null, null, null, null, ["YAKOXE"], null, null, null, null, null, null]}, {"n": "C0 BRESP", "t": "bus", "gv": [null, null, null, null, null, null, null, null, null, ["YAKO", "\u2717 YAKO"], null, null, null]}, {"n": "Mem@1000", "t": "bus", "gv": [["EERF"], ["EERF"], ["EERF"], ["EERF"], ["EERF"], ["EERF"], ["NEKAT"], ["NEKAT"], ["NEKAT"], ["NEKAT"], ["NEKAT"], ["NEKAT"], ["NEKAT"]]}];
+const ANS={"p1a": ["sey"], "p2a": ["YAKOXE", "yakoxe"], "p2b": ["YAKO", "yako"], "p4a": ["NEKAT"], "p4b": ["1", "eno"], "p4c": ["etirw s'1 eroC", "etirw gninniw eht"], "p6": ["on"], "d1a": ["degnahcnu", "gnihton"], "d1b": ["etadpu tsol", "etadpu tsol eht"], "d2c": ["on"], "d2d": ["ffokcab"], "c1": ["2"], "c2": ["2"], "c3": ["1"], "c4": ["1"], "c5": ["2"], "c6": ["2"], "c7": ["1"], "c8": ["0", "enon"]};
+const MODEL={"p5": "Memory would hold Core 0's value, because its write landed on top of Core 1's and overwrote it. Both writes took effect, so Core 1's update is gone while Core 1 believes it succeeded.<br><br>That is the lost update problem. Note what the race actually costs: not that two masters contended, but that both writes survived. Exclusive access does not stop the contention \u2014 it ensures only one of the two writes is ever performed.", "d1c": "It would have been overwritten. Core 0's plain write would land on the same address afterwards, replacing TAKEN with TAKEN \u2014 which looks harmless here, but with a counter or a linked-list pointer it silently discards Core 1's work. Core 1 would have no indication that its update was destroyed.", "d1d": "Both writes taking effect. The interleaving still happens and cannot be prevented; what exclusive access guarantees is that at most one of the two conditional writes is performed, and that the other master is told. Race prevention would require locking; this is race <i>detection</i>, which is cheaper and does not block anyone.", "d2a": "Whichever exclusive write reaches the monitor first. That is decided by interconnect arbitration, path latency, and how quickly each core computed its new value \u2014 none of it under software control, and none of it fair by construction.", "d2b": "The retry loop. Under heavy contention most attempts fail, so masters spend the majority of their time re-reading and re-attempting rather than making progress. Throughput on the contended variable collapses even though the bus itself is not saturated, which is why heavily contended single locks are usually a design problem rather than a tuning problem.", "d3": "The response is OKAY, which is neither SLVERR nor DECERR, so the driver concludes the write succeeded. It has not \u2014 memory is unchanged and another master holds the lock. The driver proceeds into the critical section alongside the true owner, and both mutate shared state.<br><br>It survives review because the code looks correct by every normal standard: it checks the response, it handles errors, and on any non-exclusive write that logic would be exactly right. The bug is that on an exclusive write, OKAY carries a meaning it has nowhere else in the protocol \u2014 success is EXOKAY, and absence of error is not success.", "r1": "A failed exclusive write is a no-op: the monitor declines it and memory is left exactly as if the attempt had never occurred. That matters because it makes retry safe \u2014 every iteration of the loop either takes full effect or none, so repeating cannot accumulate partial changes.", "r2": "Whichever exclusive write reaches the monitor first, determined by arbitration and path latency. AXI4 provides no fairness guarantee at all, so a master can lose repeatedly and starve; software must add backoff or the design must reduce contention.", "r3": "The driver checks for SLVERR and DECERR, finds neither, and treats OKAY as success \u2014 but on an exclusive write OKAY means the reservation was broken and the write did not happen. The driver believes it holds a lock another master owns, and both enter the critical section."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p4c": "beat 2 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}]];
+const STATES=['un','hi','lo'];
+const rv=s=>s.split('').reverse().join('');
+let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;
+
+function norm(s){
+  s=String(s||'').trim().toLowerCase();
+  s=s.replace(/^\d+'[hbd]/,'').replace(/0x/g,'').replace(/[\s_',]/g,'');
+  return s.replace(/^0+(?=.)/,'');
+}
+function isOk(k,v){
+  const l=ANS[k]; if(!l) return null;
+  const n=norm(v); if(!n) return false;
+  return l.some(a=>norm(rv(a))===n);
+}
+function ansText(k){ const l=ANS[k]; return l?l.map(a=>rv(a)).join(' / '):''; }
+function showAnsFor(k){
+  const mk=document.querySelector(`[data-m="${k}"]`); if(!mk||!ANS[k])return;
+  let a=mk.parentElement.querySelector(`.ans[data-a="${k}"]`);
+  if(!a){a=document.createElement('span');a.className='ans';a.dataset.a=k;mk.insertAdjacentElement('afterend',a);}
+  a.textContent=ansText(k);
+}
+function buildWave(){
+  let h='<tr><th class="lbl"></th>';
+  for(let c=0;c<CYCLES;c++)h+=`<th>${c}</th>`;
+  h+='</tr>';
+  ROWS.forEach((r,ri)=>{
+    if(r.t==='sep'){h+=`<tr class="sep"><td colspan="${CYCLES+1}"></td></tr>`;return;}
+    h+=`<tr class="${r.t==='bus'?'busrow':''}"><td class="lbl">${r.n}</td>`;
+    for(let c=0;c<CYCLES;c++){
+      const gc = r.gv && r.gv[c] ? ' gradecell' : '';
+      h+= r.t==='bus'
+        ? `<td class="cell${gc}"><input data-bus="${ri}_${c}" maxlength="10"></td>`
+        : `<td class="cell un" data-w="${ri}_${c}" onclick="tog(this)"><div class="lvl"></div></td>`;
+    }
+    h+='</tr>';
+  });
+  document.getElementById('wave').innerHTML=h;
+  document.querySelectorAll('input[data-bus]').forEach(i=>i.addEventListener('input',()=>{data.bus[i.dataset.bus]=i.value;queue();}));
+}
+function tog(td){
+  td.classList.remove('mism','match');
+  td.querySelectorAll('.gold').forEach(e=>e.remove());
+  const cur=STATES.indexOf([...td.classList].find(c=>STATES.includes(c))||'un');
+  const nx=STATES[(cur+1)%3];
+  STATES.forEach(s=>td.classList.remove(s)); td.classList.add(nx);
+  data.wave[td.dataset.w]=nx; queue();
+}
+function checkWave(){
+  let ok=0,bad=0,blank=0;
+  ROWS.forEach((r,ri)=>{
+    if(r.g){
+      const g=rv(r.g);
+      for(let c=0;c<CYCLES;c++){
+        const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
+        td.classList.remove('mism','match');
+        const cur=data.wave[`${ri}_${c}`]||'un', want=g[c]==='1'?'hi':'lo';
+        if(cur==='un')blank++;
+        else if(cur===want){ok++;td.classList.add('match');}
+        else{bad++;td.classList.add('mism');}
+      }
+    } else if(r.gv){
+      for(let c=0;c<CYCLES;c++){
+        const acc=r.gv[c]; if(!acc)continue;
+        const inp=document.querySelector(`input[data-bus="${ri}_${c}"]`); if(!inp)continue;
+        const td=inp.closest('td'); td.classList.remove('mism','match');
+        const v=norm(inp.value);
+        if(!v){blank++;continue;}
+        if(acc.some(a=>norm(rv(a))===v)){ok++;td.classList.add('match');}
+        else{bad++;td.classList.add('mism');}
+      }
+    }
+  });
+  const el=document.getElementById('wres'); el.classList.add('show');
+  el.innerHTML=`<span style="color:var(--good)">${ok} correct</span> · <span style="color:var(--bad)">${bad} wrong</span> · <span style="color:var(--faint)">${blank} unfilled</span> &nbsp;of ${ok+bad+blank} graded cells`;
+  data.waveScore={ok,bad,blank}; queue(); updateTotal();
+}
+function revealWave(){
+  if(!confirm('Show the correct waveform? A green line marks the right level.'))return;
+  ROWS.forEach((r,ri)=>{
+    if(r.g){
+      const g=rv(r.g);
+      for(let c=0;c<CYCLES;c++){
+        const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
+        td.querySelectorAll('.gold').forEach(e=>e.remove());
+        const d=document.createElement('div'); d.className='gold';
+        d.style.top=(g[c]==='1'?7:25)+'px'; td.appendChild(d);
+      }
+    } else if(r.gv){
+      for(let c=0;c<CYCLES;c++){
+        const acc=r.gv[c]; if(!acc)continue;
+        const inp=document.querySelector(`input[data-bus="${ri}_${c}"]`); if(!inp)continue;
+        inp.value=rv(acc[0]); data.bus[`${ri}_${c}`]=inp.value;
+        inp.closest('td').classList.add('match');
+      }
+    }
+  });
+}
+function clearWave(){
+  if(!confirm('Clear the grid? Written answers stay.'))return;
+  data.wave={};data.bus={};
+  document.querySelectorAll('td[data-w]').forEach(td=>{STATES.forEach(s=>td.classList.remove(s));td.classList.remove('mism','match');td.classList.add('un');td.querySelectorAll('.gold').forEach(e=>e.remove());});
+  document.querySelectorAll('input[data-bus]').forEach(i=>i.value='');
+  document.getElementById('wres').classList.remove('show'); queue();
+}
+function checkSec(pfx){
+  let ok=0,tot=0;
+  document.querySelectorAll(`[data-k^="${pfx}"]`).forEach(el=>{
+    const k=el.dataset.k, r=isOk(k,el.value), mk=document.querySelector(`[data-m="${k}"]`);
+    if(r===null){
+      const m=document.querySelector(`.model[data-model="${k}"]`);
+      if(m&&MODEL[k]){renderModel(m,k);m.classList.add('show');}
+      return;
+    }
+    tot++;
+    el.classList.remove('correct','wrong'); el.classList.add(r?'correct':'wrong');
+    if(mk){mk.className='mark '+(r?'ok':'no');mk.textContent=r?'✓':'✗';}
+    if(r)ok++; else showAnsFor(k);
+  });
+  const s=document.getElementById('sc-'+pfx);
+  if(s)s.innerHTML=tot?`<b>${ok}</b> / ${tot} auto-graded${ok<tot?' — answers shown in gold':''}`:'model answers shown — self-score below';
+  updateTotal();
+}
+function showAllAns(pfx){
+  document.querySelectorAll(`[data-k^="${pfx}"]`).forEach(el=>{
+    const k=el.dataset.k;
+    if(ANS[k])showAnsFor(k);
+    else{const m=document.querySelector(`.model[data-model="${k}"]`);if(m&&MODEL[k]){renderModel(m,k);m.classList.add('show');}}
+  });
+}
+function renderModel(el,k){
+  if(el.dataset.built)return;
+  el.dataset.built='1';
+  const cur=data.self[k];
+  el.innerHTML=`<div class="mlabel">model answer</div><div class="mbody">${MODEL[k]}</div>
+   <div class="selfscore"><span class="sl">how did you do?</span>
+   <button class="s" data-v="2" onclick="selfScore('${k}',2,this)">got it</button>
+   <button class="s" data-v="1" onclick="selfScore('${k}',1,this)">partial</button>
+   <button class="s" data-v="0" onclick="selfScore('${k}',0,this)">missed</button></div>`;
+  if(cur!==undefined){const b=el.querySelector(`button[data-v="${cur}"]`);if(b)b.classList.add('sel');}
+}
+function selfScore(k,v,btn){
+  data.self[k]=v;
+  btn.parentElement.querySelectorAll('button.s').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel'); queue(); updateTotal();
+}
+function checkAll(){['p','d','c','t','r'].forEach(checkSec);checkWave();window.scrollTo({top:0,behavior:'smooth'});}
+function buildKey(){
+  let h='';
+  KEYGROUPS.forEach(([title,map])=>{
+    h+=`<div class="keysec">${title}</div><div class="keygrid">`;
+    Object.entries(map).forEach(([k,lbl])=>{h+=`<div class="keyrow"><span class="kk">${lbl}</span><span class="kv">${ansText(k)}</span></div>`;});
+    h+='</div>';
+  });
+  h+='<div class="keysec">Free-response</div><div style="font-size:14.5px;color:var(--mid);line-height:1.6">Model answers appear inline beneath each box — press <b>check</b> or <b>show answers</b> in sections 2, 4, and 7.</div>';
+  document.getElementById('keybody').innerHTML=h;
+}
+function toggleKey(){
+  const b=document.getElementById('keybody');
+  if(!b.dataset.built){
+    if(!confirm('Reveal the full answer key? Best done after you have committed your own answers.'))return;
+    buildKey(); b.dataset.built='1';
+  }
+  b.classList.toggle('show');
+  document.getElementById('keyx').textContent=b.classList.contains('show')?'tap to hide':'tap to reveal';
+}
+function bindFields(){
+  document.querySelectorAll('[data-k]').forEach(el=>{
+    el.addEventListener('input',()=>{
+      data.fields[el.dataset.k]=el.value;
+      el.classList.toggle('filled',el.value.trim().length>0);
+      el.classList.remove('correct','wrong');
+      const mk=document.querySelector(`[data-m="${el.dataset.k}"]`); if(mk){mk.textContent='';mk.className='mark';}
+      const av=document.querySelector(`.ans[data-a="${el.dataset.k}"]`); if(av)av.remove();
+      queue(); updateProg();
+    });
+  });
+}
+function updateProg(){
+  const all=[...document.querySelectorAll('[data-k]')];
+  const done=all.filter(e=>e.value.trim().length>0).length;
+  const bar=document.getElementById('prog'), secs=['p','d','c','t','r'];
+  if(!bar.children.length)secs.forEach(()=>bar.appendChild(document.createElement('div')));
+  secs.forEach((s,i)=>{
+    const inS=all.filter(e=>e.dataset.k.startsWith(s));
+    bar.children[i].classList.toggle('done',inS.length>0&&inS.every(e=>e.value.trim().length>0));
+  });
+  document.getElementById('proglabel').textContent=`${done} / ${all.length} answered`;
+  return {done,total:all.length};
+}
+function updateTotal(){
+  let ok=0,tot=0;
+  Object.keys(ANS).forEach(k=>{
+    const el=document.querySelector(`[data-k="${k}"]`); if(!el)return;
+    tot++; if(isOk(k,el.value))ok++;
+  });
+  const sv=Object.values(data.self);
+  const st=sv.length?` · self ${sv.filter(v=>v===2).length}/${sv.length} solid`:'';
+  const w=data.waveScore?` · wave ${data.waveScore.ok}✓`:'';
+  document.getElementById('tot').innerHTML=`<b>${ok}</b>/${tot} exact${w}${st}`;
+  return {ok,tot};
+}
+function updateIndex(){
+  try{
+    const p=updateProg(), t=updateTotal();
+    const ix=JSON.parse(localStorage.getItem(INDEX)||'{}');
+    ix[CID]={done:p.done===p.total&&p.total>0, answered:p.done, total:p.total,
+             exact:t.ok, exactTotal:t.tot,
+             missed:Object.entries(data.self).filter(([,v])=>v===0).length,
+             ts:Date.now()};
+    localStorage.setItem(INDEX,JSON.stringify(ix));
+  }catch(e){}
+}
+function renderDots(){
+  let ix={}; try{ix=JSON.parse(localStorage.getItem(INDEX)||'{}');}catch(e){}
+  let h='';
+  for(let i=1;i<=NCASE;i++){
+    const e=ix[`${TID}-${String(i).padStart(2,'0')}`];
+    h+=`<i class="${i===IDX?'on':(e&&e.done?'done':'')}" title="Case ${i}"></i>`;
+  }
+  document.getElementById('dots').innerHTML=h;
+}
+const HAS_CLAUDE=typeof window.storage!=='undefined'&&window.storage&&typeof window.storage.set==='function';
+const MODE=HAS_CLAUDE?'claude':'local';
+const store={
+  async set(k,v){
+    if(HAS_CLAUDE){try{return await window.storage.set(k,v);}catch(e){}}
+    try{localStorage.setItem(k,v);return {key:k};}catch(e){return null;}
+  },
+  async get(k){
+    if(HAS_CLAUDE){try{const r=await window.storage.get(k);if(r)return r;}catch(e){}}
+    try{const v=localStorage.getItem(k);return v!==null?{key:k,value:v}:null;}catch(e){return null;}
+  }
+};
+function setDot(c,t){document.getElementById('dot').className='dot'+(c?' '+c:'');document.getElementById('savetxt').textContent=t;}
+function queue(){setDot('saving','saving…');clearTimeout(saveTimer);saveTimer=setTimeout(save,700);}
+async function save(){
+  try{
+    const r=await store.set(KEY,JSON.stringify(data));
+    updateIndex(); renderDots();
+    setDot(r?'saved':'err',r?('saved · '+MODE):'not saved');
+  }catch(e){setDot('err','save failed');}
+}
+function applyData(){
+  document.querySelectorAll('[data-k]').forEach(el=>{el.value='';el.classList.remove('filled','correct','wrong');});
+  document.querySelectorAll('[data-m]').forEach(m=>{m.textContent='';m.className='mark';});
+  document.querySelectorAll('.ans').forEach(a=>a.remove());
+  document.querySelectorAll('td[data-w]').forEach(td=>{STATES.forEach(x=>td.classList.remove(x));td.classList.remove('mism','match');td.classList.add('un');td.querySelectorAll('.gold').forEach(g=>g.remove());});
+  document.querySelectorAll('input[data-bus]').forEach(i=>i.value='');
+  Object.entries(data.fields).forEach(([k,v])=>{const el=document.querySelector(`[data-k="${k}"]`);if(el){el.value=v;el.classList.toggle('filled',String(v).trim().length>0);}});
+  Object.entries(data.wave).forEach(([k,v])=>{const td=document.querySelector(`td[data-w="${k}"]`);if(td){STATES.forEach(x=>td.classList.remove(x));td.classList.add(v);}});
+  Object.entries(data.bus).forEach(([k,v])=>{const i=document.querySelector(`input[data-bus="${k}"]`);if(i)i.value=v;});
+  document.querySelectorAll('.model').forEach(m=>{const k=m.dataset.model;if(data.self[k]!==undefined&&MODEL[k]){renderModel(m,k);m.classList.add('show');}});
+  updateProg(); updateTotal();
+}
+async function load(){
+  try{
+    const r=await store.get(KEY);
+    if(r&&r.value){
+      data=JSON.parse(r.value);
+      data.fields=data.fields||{};data.wave=data.wave||{};data.bus=data.bus||{};data.self=data.self||{};
+      applyData(); setDot('saved','restored · '+MODE);
+    } else {setDot('','new sheet · '+MODE);updateProg();updateTotal();}
+  }catch(e){setDot('','new sheet · '+MODE);updateProg();updateTotal();}
+  renderDots();
+}
+function exportJSON(){
+  const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+  a.download='axi4-'+CID+'.json'; a.click();
+}
+function importJSON(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=e=>{
+    const f=e.target.files[0]; if(!f)return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const d=JSON.parse(rd.result); if(!d||typeof d!=='object')throw 0;
+        data={fields:d.fields||{},wave:d.wave||{},bus:d.bus||{},self:d.self||{}};
+        if(d.waveScore)data.waveScore=d.waveScore;
+        applyData(); queue(); alert('Imported — '+Object.keys(data.fields).length+' fields restored.');
+      }catch(err){alert('Could not read that file. Is it a workbook export?');}
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+}
+function resetAll(){
+  if(!confirm('Erase all answers, the grid, and your self-scores for this case?'))return;
+  data={fields:{},wave:{},bus:{},self:{}};
+  applyData();
+  document.querySelectorAll('.model').forEach(m=>m.classList.remove('show'));
+  document.getElementById('wres').classList.remove('show');
+  document.querySelectorAll('.score').forEach(s=>s.textContent='');
+  const kb=document.getElementById('keybody'); kb.classList.remove('show'); kb.dataset.built=''; kb.innerHTML='';
+  document.getElementById('keyx').textContent='tap to reveal';
+  queue();
+}
+buildWave(); bindFields(); load();
+</script>
+</body>
+</html>
