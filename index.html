@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AXI4 — Interactive Protocol Reference</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<style>
+  :root{
+    --paper:#faf9f5; --card:#fffefb; --card2:#f5f3ec; --sunk:#f0eee5;
+    --ink:#1f1e1d; --mid:#6b6862; --faint:#9a968d;
+    --rule:#e3dfd3; --hair:#ece9df;
+    --accent:#c15f3c; --accent-soft:#f7ece7; --accent-line:#e0b9a7;
+    --good:#3f7d5f; --good-soft:#eef5f0; --gold:#9a7328;
+    --serif:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif);
+    font-size:18px;line-height:1.66;padding:44px 30px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  header{border-bottom:1px solid var(--rule);padding-bottom:22px;margin-bottom:30px}
+  .eyebrow{font-family:var(--sans);font-size:13px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin-bottom:8px}
+  h1{font-size:40px;font-weight:600;margin:0 0 8px;letter-spacing:-.02em;line-height:1.12}
+  .lead{font-size:20px;color:var(--mid);max-width:70ch}
+
+  .stats{display:flex;gap:28px;margin-top:22px;flex-wrap:wrap}
+  .stat .n{font-family:var(--sans);font-size:26px;font-weight:600;color:var(--accent);line-height:1}
+  .stat .l{font-family:var(--sans);font-size:12.5px;color:var(--faint);text-transform:uppercase;
+    letter-spacing:.08em;margin-top:3px}
+
+  h2{font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--accent);margin:40px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--hair)}
+
+  .topics{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+  .topic{border:1px solid var(--rule);border-radius:11px;background:var(--card);overflow:hidden;
+    transition:border-color .18s,box-shadow .18s}
+  .topic:hover{border-color:var(--accent-line);box-shadow:0 2px 14px rgba(193,95,60,.07)}
+  .thead{padding:17px 20px 13px}
+  .tname{font-size:22px;font-weight:600;letter-spacing:-.01em;margin-bottom:3px}
+  .tdesc{font-size:15.5px;color:var(--mid);line-height:1.5}
+  .tmeta{font-family:var(--mono);font-size:13px;color:var(--faint);margin-top:9px}
+  .tbar{display:flex;gap:3px;padding:0 20px 13px}
+  .tbar span{flex:1;height:4px;border-radius:2px;background:var(--rule)}
+  .tbar span.on{background:var(--good)}
+  .tacts{display:flex;border-top:1px solid var(--hair)}
+  .tacts a{flex:1;text-align:center;padding:13px 10px;font-family:var(--sans);font-size:14px;
+    font-weight:600;text-decoration:none;color:var(--mid);transition:all .15s}
+  .tacts a:hover{background:var(--accent-soft);color:var(--accent)}
+  .tacts a+a{border-left:1px solid var(--hair)}
+  .tacts a.dim{color:var(--faint);cursor:not-allowed}
+  .tacts a.dim:hover{background:transparent;color:var(--faint)}
+
+  .how{background:var(--card2);border:1px solid var(--rule);border-radius:11px;padding:22px 26px}
+  .how ol{margin:0;padding-left:22px}
+  .how li{margin-bottom:11px;font-size:17px}
+  .how li:last-child{margin-bottom:0}
+  .how b{font-weight:600}
+  code{font-family:var(--mono);font-size:.85em;background:var(--sunk);padding:2px 6px;border-radius:4px}
+
+  .tools{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  button.t{font-family:var(--sans);font-size:14px;padding:8px 16px;border-radius:7px;
+    border:1px solid var(--rule);background:transparent;color:var(--mid);cursor:pointer;transition:all .15s}
+  button.t:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  button.t.danger:hover{border-color:#b0453a;color:#b0453a;background:#faeeec}
+
+  footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--rule);
+    font-family:var(--sans);font-size:13.5px;color:var(--faint);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  @media(max-width:700px){body{padding:30px 18px 70px;font-size:17px}h1{font-size:32px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">AMBA AXI4 · From First Principles</div>
+  <h1>AXI4 Interactive Reference</h1>
+  <p class="lead">Timing diagrams you can step through, paired with workbooks that make you derive the behaviour before you check it.</p>
+  <div class="stats">
+    <div class="stat"><div class="n">4</div><div class="l">topics</div></div>
+    <div class="stat"><div class="n">36</div><div class="l">cases</div></div>
+    <div class="stat"><div class="n" id="doneN">0</div><div class="l">workbooks done</div></div>
+    <div class="stat"><div class="n" id="pctN">0%</div><div class="l">complete</div></div>
+  </div>
+</header>
+
+<h2>Topics</h2>
+<div class="topics" id="topics"></div>
+
+<h2>How to use this</h2>
+<div class="how">
+<ol>
+  <li><b>Open the visual and the workbook side by side.</b> Every visual has an <i>open workbook →</i> button that launches the matching case in a new window. Drag them beside each other.</li>
+  <li><b>Read the workbook's background section first</b> — why the case matters and where it shows up in real silicon.</li>
+  <li><b>Predict before you look.</b> Work sections 2 and 3 from the configuration alone. Getting a prediction wrong is the most useful thing that can happen.</li>
+  <li><b>Then open the visual</b> and check yourself. Press <code>check</code> in the workbook to grade the exact answers and the waveform.</li>
+  <li><b>Self-score the written answers</b> honestly. The review queue surfaces anything you marked <i>missed</i> after a week.</li>
+</ol>
+<div class="tools">
+  <button class="t" onclick="exportAll()">export all progress</button>
+  <button class="t" onclick="importAll()">import progress</button>
+  <button class="t danger" onclick="resetAll()">reset everything</button>
+</div>
+</div>
+
+<footer>
+  <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
+  <span id="storenote"></span>
+</footer>
+</div>
+
+<script>
+const IDX='axi4wb:index';
+const TOPICS=[
+  {id:'read', name:'Read Transactions', n:8, hue:'#2fb8d4',
+   desc:'Address and data channels, burst types, RLAST, byte lanes, error responses.',
+   visual:'visual/read.html', ready:true},
+  {id:'write', name:'Write Transactions', n:10, hue:'#3f7d5f',
+   desc:'Three channels, AW/W independence, write strobes, one BRESP per burst.',
+   visual:'visual/write.html', ready:true},
+  {id:'ordering', name:'Ordering & Hazards', n:10, hue:'#c1873c',
+   desc:'WAW, RAW, WAR, RAR. Same-ID guarantees, deadlock rules, the 4KB boundary.',
+   visual:'visual/ordering.html', ready:true},
+  {id:'exclusive', name:'Exclusive Access', n:8, hue:'#8a5fc1',
+   desc:'Monitors, EXOKAY, retry loops, false sharing, AXI3 locked vs AXI4 exclusive.',
+   visual:'visual/exclusive.html', ready:true}
+];
+
+let index={};
+function loadIndex(){
+  try{ index=JSON.parse(localStorage.getItem(IDX)||'{}'); }catch(e){ index={}; }
+}
+function caseKey(t,i){ return t+'-'+String(i+1).padStart(2,'0'); }
+function isDone(t,i){ const e=index[caseKey(t,i)]; return !!(e&&e.done); }
+
+function render(){
+  document.getElementById('topics').innerHTML=TOPICS.map(t=>{
+    const bars=Array.from({length:t.n}).map((_,i)=>
+      `<span class="${isDone(t.id,i)?'on':''}"></span>`).join('');
+    const done=Array.from({length:t.n}).filter((_,i)=>isDone(t.id,i)).length;
+    const last=(()=>{try{return localStorage.getItem('axi4:last:'+t.id)}catch(e){return null}})();
+    return `<div class="topic" style="border-top:3px solid ${t.hue}">
+      <div class="thead">
+        <div class="tname">${t.name}</div>
+        <div class="tdesc">${t.desc}</div>
+        <div class="tmeta">${t.n} cases · ${done} workbook${done===1?'':'s'} done${last!==null?` · last viewed case ${+last+1}`:''}</div>
+      </div>
+      <div class="tbar">${bars}</div>
+      <div class="tacts">
+        <a href="${t.visual}">Open visual</a>
+        <a class="dim" href="#" onclick="return false" title="workbooks coming next">Workbooks</a>
+      </div>
+    </div>`;
+  }).join('');
+  const total=TOPICS.reduce((a,t)=>a+t.n,0);
+  const done=TOPICS.reduce((a,t)=>a+Array.from({length:t.n}).filter((_,i)=>isDone(t.id,i)).length,0);
+  document.getElementById('doneN').textContent=done;
+  document.getElementById('pctN').textContent=Math.round(done/total*100)+'%';
+  document.getElementById('storenote').textContent=
+    location.protocol==='file:'?'running locally — host it for durable storage':'progress saved in this browser';
+}
+
+function exportAll(){
+  const dump={};
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k.startsWith('axi4wb:')) dump[k]=localStorage.getItem(k);
+  }
+  const blob=new Blob([JSON.stringify(dump,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='axi4-progress-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+}
+function importAll(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{
+      try{
+        const d=JSON.parse(r.result);
+        let n=0;
+        Object.entries(d).forEach(([k,v])=>{ if(k.startsWith('axi4wb:')){ localStorage.setItem(k,v); n++; } });
+        loadIndex(); render();
+        alert('Imported '+n+' entries.');
+      }catch(err){ alert('Could not read that file.'); }
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function resetAll(){
+  if(!confirm('Erase ALL progress across every workbook?')) return;
+  if(!confirm('This cannot be undone. Export first if you want a backup. Continue?')) return;
+  const del=[];
+  for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.startsWith('axi4wb:')) del.push(k); }
+  del.forEach(k=>localStorage.removeItem(k));
+  loadIndex(); render();
+}
+
+loadIndex(); render();
+</script>
+</body>
+</html>
