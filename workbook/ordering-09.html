@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AXI4 Workbook — Same-ID Ordering</title>
+<title>AXI4 Workbook — ID Expansion Through the Interconnect</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
 <style>
   :root{
@@ -243,70 +243,80 @@
 <div class="crumb">
   <a href="../index.html">← all topics</a>
   <span class="sep">·</span>
-  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Read Transactions</span>
-  <select onchange="location.href=this.value+'.html'"><option value="read-01">01 · Single Beat</option><option value="read-02">02 · Burst (INCR)</option><option value="read-03">03 · Multi-ID Reorder</option><option value="read-04" selected>04 · Same-ID Order</option><option value="read-05">05 · WRAP Burst</option><option value="read-06">06 · Error Response</option><option value="read-07">07 · FIXED Burst</option><option value="read-08">08 · Narrow Transfer</option></select>
-  <a class="vlink" href="../visual/read.html" target="_blank" rel="noopener">open visual →</a>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Ordering & Hazards</span>
+  <select onchange="location.href=this.value+'.html'"><option value="ordering-01">01 · WAW Same-ID</option><option value="ordering-02">02 · WAW Diff-ID</option><option value="ordering-03">03 · RAW Same-ID</option><option value="ordering-04">04 · RAW Diff-ID</option><option value="ordering-05">05 · WAR Same-ID</option><option value="ordering-06">06 · RAR Ordering</option><option value="ordering-07">07 · Device vs Memory</option><option value="ordering-08">08 · Deadlock Rules</option><option value="ordering-09" selected>09 · ID Expansion</option><option value="ordering-10">10 · 4KB Boundary</option></select>
+  <a class="vlink" href="../visual/ordering.html" target="_blank" rel="noopener">open visual →</a>
 </div>
 
 <header>
   <div class="topline">
-    <span class="topic">AXI4 Workbook · Case 04 of 8</span>
+    <span class="topic">AXI4 Workbook · Case 09 of 10</span>
     <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
   </div>
-  <h1>Same-ID Ordering</h1>
-  <div class="sub">Case 4 of 8 · Two reads share an ID — the protocol forbids overtaking</div>
+  <h1>ID Expansion Through the Interconnect</h1>
+  <div class="sub">Case 9 of 10 · Why two masters using AWID=3 do not share an ordering domain</div>
   <div class="prog" id="prog"></div>
   <div class="proglabel" id="proglabel">—</div>
 </header>
 
 <h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
 <div class="bg">
-<p class="lead">This is the mirror of the previous case, and the pair is best studied together. Identical stimulus, one field changed, and the guarantee inverts completely. That single field is <code>ARID</code>.</p>
+<p class="lead">Masters choose their own IDs from their own ID space. Two masters can both use <code>AWID=3</code> for entirely unrelated transactions. The interconnect must keep them apart, and how it does so explains why cross-master ordering never exists.</p>
 
-<h3>What sharing an ID buys you</h3>
-<p>When two reads carry the same ID, AXI4 guarantees their responses appear on the R channel in the order the addresses were accepted. Read A's beats — all of them, ending with <code>RLAST</code> — must complete before any beat of Read B appears. The slave may fetch in whatever order it pleases internally; what it may not do is let B's data overtake A's on the bus.</p>
-
-<p>That guarantee is what lets a master do something very useful: issue several dependent reads back to back without waiting for any of them, and still consume the results in a known order.</p>
+<h3>The collision problem</h3>
+<p>If the interconnect forwarded IDs unchanged, a slave would see two transactions tagged <code>ID=3</code> from different masters and be obliged to order them relative to each other — because same-ID means ordered. Worse, the return path would have no way to know which master each response belonged to.</p>
 
 <div class="mathblock">
-<span class="cmt">// serialise at the master: wait for each RLAST before next ARVALID</span><br>
-read A  <span class="cmt">→</span> 40 cyc, then read B <span class="cmt">→</span> 40 cyc  <span class="cmt">=</span> <span class="hi">80 cycles</span><br>
+M0 issues AWID=<span class="hi">0011</span>  <span class="cmt">// master 0's ID 3</span><br>
+M1 issues AWID=<span class="hi">0011</span>  <span class="cmt">// master 1's ID 3 — unrelated</span><br>
 <br>
-<span class="cmt">// pipeline with a shared ID: both addresses out immediately</span><br>
-A and B in flight together, ordered return  <span class="cmt">=</span> <span class="hi">~44 cycles</span><br>
-<br>
-<span class="cmt">// same ordering guarantee, half the time</span>
+<span class="cmt">// forwarded unchanged: slave cannot tell them apart</span>
 </div>
 
-<p>This is the point that gets missed. Same-ID does not mean serialised. The address channel still pipelines; the slave may still have both fetches running concurrently. Only the <i>return order</i> is constrained.</p>
+<h3>The solution: prepend a master index</h3>
+<p>The interconnect widens the ID field and prepends bits identifying which port the transaction arrived on:</p>
 
-<h3>When you need it</h3>
+<div class="mathblock">
+M0: 0011 <span class="cmt">→</span> <span class="hi">00</span>_0011  <span class="cmt">= ID 3 at the slave</span><br>
+M1: 0011 <span class="cmt">→</span> <span class="hi">01</span>_0011  <span class="cmt">= ID 19 at the slave</span><br>
+<br>
+slave_id_width <span class="cmt">=</span> master_id_width + ceil(log2(num_masters))
+</div>
+
+<p>On the return path the interconnect uses the prefix to route the response back to the correct master, then strips it. Both masters see their own original 4-bit <code>BID</code>. The expansion is invisible to both ends.</p>
+
+<h3>The consequence that matters</h3>
+<div class="pull">
+<div class="plabel">Cross-master ordering is impossible by construction</div>
+<p>After expansion, two transactions from different masters always carry different IDs at the slave — so they are always in different ordering domains. There is no way for two masters to share an ordering domain through a standard interconnect, whatever IDs they choose.</p>
+</div>
+
+<p>This is why case 4 has no in-protocol solution. It is not an oversight; it is a structural consequence of how IDs are namespaced. Two masters cannot express a mutual ordering constraint because the fabric deliberately separates their ID spaces.</p>
+
+<h3>What is preserved</h3>
+<p>Intra-master ordering survives intact. Master 0's two transactions with <code>AWID=3</code> both become <code>00_0011</code>, so they remain in the same domain and stay ordered relative to each other. The expansion separates masters without disturbing anything within a master.</p>
+
+<h3>Sizing, and where it goes wrong</h3>
 <table class="apps">
-<tr><th>Situation</th><th>Why order matters</th></tr>
-<tr><td>Status then data</td><td>Software reads a status register, then a data register whose meaning depends on that status. Seeing them out of order yields a coherent-looking but wrong interpretation</td></tr>
-<tr><td>Descriptor chain</td><td>A DMA engine reads descriptor N, which contains the pointer to N+1. The dependency is real; ordering is not optional</td></tr>
-<tr><td>Producer/consumer flag</td><td>Read the flag, then the payload it guards. Reordered, you read payload that was not yet valid when the flag was checked</td></tr>
-<tr><td>Peripheral FIFO drain</td><td>Successive reads pop successive entries. Out-of-order return would scramble the stream</td></tr>
+<tr><th>Consideration</th><th>What to check</th></tr>
+<tr><td>Slave ID width</td><td>Must be at least master width plus the index bits. Too narrow and IDs alias — two masters collide and ordering is silently wrong</td></tr>
+<tr><td>Cascaded interconnects</td><td>Each layer adds bits. A three-level hierarchy can widen a 4-bit ID to 10 or more</td></tr>
+<tr><td>Unused width</td><td>Sizing ID width for headroom rather than actual outstanding capability wastes wires on every port</td></tr>
+<tr><td>Response routing</td><td>The prefix must be stripped correctly. A bug here delivers responses to the wrong master</td></tr>
 </table>
 
-<div class="pull">
-<div class="plabel">Where the cost lands</div>
-<p>Sharing an ID couples transactions that may have nothing to do with each other. If a master funnels all its traffic through one ID for safety, a single slow access blocks every subsequent response — you have rebuilt in-order return and thrown away the reason AXI has IDs. ID assignment is a real design decision, not a default.</p>
-</div>
-
-<h3>The subtlety worth carrying forward</h3>
-<p>Same-ID ordering is a guarantee about the <b>read channel only</b>. It says nothing about reads versus writes, and nothing about when memory actually changes. A read that follows a write to the same address, even with matching IDs, is <i>not</i> ordered against that write — the AR and AW channels are independent and there is no cross-channel guarantee. That case is the RAW hazard, and it is the single most common source of real ordering bugs in SoCs. You will meet it in the Ordering topic; note now that this case does not solve it.</p>
+<p>The aliasing failure is the dangerous one. If the slave's ID field is too narrow, the top prefix bits are dropped and two masters' transactions become indistinguishable — the slave then orders unrelated traffic together, or worse, the interconnect routes a response to the wrong master.</p>
 </div>
 
 <h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
 <div class="config">
-  <table><tr><td class="sig">Read A — ARID</td><td class="val">4'h3</td><td class="note">first transaction</td></tr><tr><td class="sig">Read A — ARADDR</td><td class="val">32'h0000_1000</td><td class="note">status register</td></tr><tr><td class="sig">Read A — ARLEN</td><td class="val">8'h01</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Read B — ARID</td><td class="val">4'h3</td><td class="note">same ID as A</td></tr><tr><td class="sig">Read B — ARADDR</td><td class="val">32'h0000_2000</td><td class="note">data register</td></tr><tr><td class="sig">Read B — ARLEN</td><td class="val">8'h00</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Data bus</td><td class="val">64-bit</td><td class="note">slave interface width</td></tr></table>
-  <div class="cite">Read A is issued first. Read B's data happens to be ready earlier, but may not overtake.</div>
+  <table><tr><td class="sig">Master 0 — AWID</td><td class="val">4'b0011</td><td class="note">master 0, its ID 3</td></tr><tr><td class="sig">Master 0 — AWADDR</td><td class="val">32'h0000_1000</td><td class="note">shared address</td></tr><tr><td class="sig">Master 1 — AWID</td><td class="val">4'b0011</td><td class="note">master 1, also its ID 3</td></tr><tr><td class="sig">Master 1 — AWADDR</td><td class="val">32'h0000_1000</td><td class="note">same address</td></tr><tr><td class="sig">Interconnect</td><td class="val">4 masters</td><td class="note">2 prefix bits required</td></tr><tr><td class="sig">Slave ID width</td><td class="val">6 bits</td><td class="note">4 + 2</td></tr></table>
+  <div class="cite">Both masters independently chose AWID=3. The interconnect must keep the transactions distinguishable.</div>
 </div>
 
 <h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
 <div class="predict">
-<ol><li>Beats for Read A? <input class="f n" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;For Read B? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which transaction returns first? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Is any other order legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>At which cycle does the earliest legal beat of Read B occur? <input class="f n" data-k="p3"><span class="mark" data-m="p3"></span></li><li>How many R beats appear in total? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;How many RLAST assertions? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>The slave has B's data ready before A's. What must it do with it? <textarea class="f" data-k="p5" placeholder="Be concrete about the slave's internal behaviour."></textarea><div class="model" data-model="p5"></div></li><li>Is the AR channel serialised by the shared ID? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
+<ol><li>Slave-side ID for Master 0? <input class="f m" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;For Master 1? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>As decimal values: M0 sees <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> and M1 sees <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>Formula for slave ID width with 4 masters and 4-bit master IDs? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span></li><li>Do the two transactions share an ordering domain at the slave? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>What does each master see as its BID on the return path? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li><li>Why does this make cross-master ordering structurally impossible? <textarea class="f" data-k="p5" placeholder="Connect it back to case 4."></textarea><div class="model" data-model="p5"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('p')">check section 2</button>
   <button class="t gold" onclick="showAllAns('p')">show answers</button>
@@ -324,11 +334,11 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
   </div>
   <div class="wavescroll"><table class="wave" id="wave"></table></div>
   <div class="waveresult" id="wres"></div>
-  <div class="gridnote">Both transactions carry ARID=3. Note where A's RLAST falls relative to B's first beat.</div>
+  <div class="gridnote">The Slave AWID, Slave sees and Ordering rows are graded. Trace the expansion and its consequence.</div>
 </div>
 
 <h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
-<div class="derive"><div class="q">Same ID orders responses — does it also serialise the requests?</div><ol class="steps"><li>Can the master assert ARVALID for B before A's RLAST arrives? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Can the slave begin fetching B before finishing A? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>So what exactly is constrained? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>From the background numbers, cycles saved by pipelining rather than waiting: <input class="f m" data-k="d1d"><span class="mark" data-m="d1d"></span></li></ol><div class="q">Choosing IDs is a design decision</div><ol class="steps"><li>A master funnels all traffic through one ID "to be safe". What has it accidentally rebuilt? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Two reads with a genuine dependency. Same ID or different? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Two reads with no dependency, to slaves of very different speed. Same or different? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>State the general principle for assigning IDs in one sentence: <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">Read A (ARID=3) is a read of address X. Read B (ARID=3) is a read of the same address X, issued after a write to X from this same master. Does same-ID ordering guarantee B sees the written value? Explain carefully.</div><textarea class="f" data-k="d3" placeholder="Which channels are involved, and which guarantee applies to which?"></textarea><div class="model" data-model="d3"></div>
+<div class="derive"><div class="q">Why expansion is necessary</div><ol class="steps"><li>If IDs were forwarded unchanged, what would the slave be obliged to do? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>And what could the return path not determine? <textarea class="f" data-k="d1d" placeholder=""></textarea><div class="model" data-model="d1d"></div></li><li>How many prefix bits for 4 masters? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span> &nbsp;For 9 masters? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li></ol><div class="q">What it preserves and what it destroys</div><ol class="steps"><li>Master 0 issues two transactions with AWID=3. Same domain at the slave? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Master 0 and Master 1 each issue AWID=3. Same domain? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>So which ordering survives expansion, and which cannot exist? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Connect this to case 4: why is there no in-protocol fix there? <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">A slave is configured with a 5-bit ID field in a system needing 6. Describe what happens, why it is silent, and what you would look for in a trace.</div><textarea class="f" data-k="d3" placeholder="What happens to the top prefix bit?"></textarea><div class="model" data-model="d3"></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('d')">check section 4</button>
   <button class="t gold" onclick="showAllAns('d')">show answers</button>
@@ -337,7 +347,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
-<div class="calc"><div><h4>Read A beat addresses</h4><div class="formula">addr(n) = ARADDR + (n × 2^ARSIZE), ARSIZE=3'b011</div><div class="calcrow"><span>bytes/beat</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>A beat 0</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>A beat 1</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>A end addr</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Pipelining benefit</h4><div class="formula">both slaves 40 cycles, 2 beats each</div><div class="calcrow"><span>serialised total</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>pipelined total</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>cycles saved</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>B addr, single beat</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="calc"><div><h4>Width arithmetic</h4><div class="formula">slave_width = master_width + ceil(log2(N))</div><div class="calcrow"><span>4 masters, 4-bit</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>9 masters, 4-bit</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>2 masters, 8-bit</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>16 masters, 6-bit</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Cascaded fabric</h4><div class="formula">each layer prepends</div><div class="calcrow"><span>layer 1 (4 ports)</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>layer 2 (4 ports)</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>layer 3 (2 ports)</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>total from 4-bit master</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('c')">check section 5</button>
   <button class="t gold" onclick="showAllAns('c')">show answers</button>
@@ -345,17 +355,17 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
-<div class="tree"><span class="obs">OBSERVED —</span> responses arrive out of order for two same-ID reads<br>
-<span class="arrow">├─</span> <span class="chk">are the IDs genuinely equal on the wire?</span> → check after interconnect <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
-<span class="arrow">└─</span> <span class="chk">confirmed equal?</span> → this is a slave or interconnect protocol violation, not a master bug<br>
+<div class="tree"><span class="obs">OBSERVED —</span> unrelated traffic from two masters appears ordered together<br>
+<span class="arrow">├─</span> <span class="chk">is the slave ID field wide enough?</span> → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">top prefix bits truncated?</span> → IDs alias → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
 <br>
-<span class="obs">OBSERVED —</span> throughput collapsed after an "ordering fix"<br>
-<span class="arrow">├─</span> <span class="chk">did all traffic get moved onto one ID?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
-<span class="arrow">└─</span> <span class="chk">does the master now wait for RLAST between reads?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="obs">OBSERVED —</span> a master receives a response it never requested<br>
+<span class="arrow">├─</span> <span class="chk">prefix stripped correctly on the return path?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="arrow">└─</span> <span class="chk">two masters aliasing to the same slave ID?</span> → routing becomes ambiguous<br>
 <br>
-<span class="obs">OBSERVED —</span> read returns stale data despite matching IDs on the preceding write<br>
-<span class="arrow">├─</span> <span class="chk">was the preceding access a write?</span> → same-ID gives no cross-channel order → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
-<span class="arrow">└─</span> <span class="chk">did the master wait for BRESP?</span> → the only reliable guarantee</div>
+<span class="obs">OBSERVED —</span> two masters cannot be made to order against each other<br>
+<span class="arrow">├─</span> <span class="chk">is this expected?</span> → yes, by construction → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
+<span class="arrow">└─</span> <span class="chk">need cross-master ordering?</span> → requires coherency or software sync</div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('t')">check section 6</button>
   <button class="t gold" onclick="showAllAns('t')">show answers</button>
@@ -364,7 +374,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 
 <h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
 <div class="recall">
-<ol><li>Two reads share an ID. List precisely what is ordered and what is not.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain why same-ID ordering does not cost you address-channel pipelining.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Give the one situation where same-ID reads still will not save you, and name the mechanism that will.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<ol><li>Give the ID width formula and explain each term.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Say what ID expansion preserves and what it makes impossible.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Describe the aliasing failure and why it is silent.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('r')">reveal section 7</button>
   <span class="score" id="sc-r"></span>
@@ -381,14 +391,14 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <div class="casenav">
-  <a href="read-03.html">← Case 03</a>
+  <a href="ordering-08.html">← Case 08</a>
   <span class="dots" id="dots"></span>
-  <a href="read-05.html">Case 05 →</a>
+  <a href="ordering-10.html">Case 10 →</a>
 </div>
 
 <footer>
   <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
-  <span>Read Transactions · Case 04</span>
+  <span>Ordering & Hazards · Case 09</span>
 </footer>
 </div>
 
@@ -401,13 +411,13 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <script>
-const CID='read-04', TID='read', IDX=4, NCASE=8;
+const CID='ordering-09', TID='ordering', IDX=9, NCASE=10;
 const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
-const CYCLES=11;
-const ROWS=[{"n": "ARVALID", "t": "bit", "g": "00000011110"}, {"n": "ARREADY", "t": "bit", "g": "00000010100"}, {"n": "ARID", "t": "bus"}, {"n": "ARADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "RVALID", "t": "bit", "g": "00011100000"}, {"n": "RREADY", "t": "bit", "g": "00011100000"}, {"n": "RID", "t": "bus"}, {"n": "RDATA", "t": "bus"}, {"n": "RLAST", "t": "bit", "g": "00011000000"}];
-const ANS={"p1a": ["2"], "p1b": ["1"], "p2a": ["A", "a"], "p2b": ["on", "enon"], "p3": ["7"], "p4a": ["3"], "p4b": ["2"], "p6": ["on"], "d1a": ["sey"], "d1b": ["sey"], "d1d": ["63"], "d2c": ["emas"], "d2d": ["tnereffid", "ffid"], "c1": ["8"], "c2": ["0001x0"], "c3": ["8001x0"], "c4": ["F001x0"], "c5": ["08"], "c6": ["44"], "c7": ["63"], "c8": ["0002x0"], "t2": ["redro-ni"]};
-const MODEL={"p5": "It must hold B's data until Read A has completed \u2014 that is, until A's final beat has been transferred with RLAST asserted. The slave needs a buffer for the early data; it cannot simply present it and cannot discard it. Note what this implies for slave design: supporting same-ID ordering with concurrent internal fetches requires reorder buffering, which is why some simple slaves choose to serialise their fetches instead and take the latency hit.", "d1c": "Only the order in which responses appear on the R channel. The master may issue both addresses back to back; the slave may fetch both concurrently; the interconnect may route them independently. The single constraint is that A's beats, through RLAST, must appear before B's first beat. Everything upstream of that is unconstrained.", "d2a": "In-order return \u2014 exactly the behaviour AXI's ID mechanism exists to escape. Every transaction now waits behind every earlier one, so one slow access to a distant slave stalls all subsequent responses regardless of where they were headed. The master has kept the correctness it wanted and paid for it with the throughput of every unrelated access.", "d2b": "Share an ID only where an ordering dependency genuinely exists; use distinct IDs everywhere else, since every shared ID is an ordering constraint you are choosing to pay for.", "d3": "No. Same-ID ordering is a guarantee about the read channel only \u2014 it orders R responses against other R responses. The write travelled on AW and W, which are independent channels from AR, and AXI4 provides no cross-channel ordering guarantee at all. The slave may serve the read from memory before the write data has been committed, returning the old value, and that is entirely legal.<br><br>The only reliable guarantee is for the master to wait for the write's BRESP before issuing the read. This is the RAW hazard, and it catches people precisely because matching IDs <i>feel</i> like they should be sufficient.", "r1": "<b>Ordered:</b> the appearance of R beats on the bus \u2014 A's beats through RLAST precede B's first beat. <b>Not ordered:</b> the AR handshakes (both may be issued back to back), the slave's internal fetch order, and anything involving the write channels. The guarantee is about response visibility on one channel, nothing more.", "r2": "Because the constraint applies to the R channel, not the AR channel. The master issues both addresses immediately and both fetches proceed concurrently inside the slave; only the returning data is held in order. You pay for ordering with reorder buffering in the slave, not with address-channel idle time \u2014 which is why pipelining with a shared ID beats waiting for RLAST by roughly the latency of one transaction.", "r3": "A read that must observe a preceding write from the same master. Same-ID does nothing there, because reads and writes travel on independent channels with no cross-channel ordering. The mechanism that works is waiting for the write's BRESP before issuing the read \u2014 the write response is the only signal that the write has taken effect."};
-const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p3": "RLAST beat idx", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d1d": "d1d", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}], ["Section 6 \u2014 Triage", {"t2": "unmapped\u2192RRESP"}]];
+const CYCLES=10;
+const ROWS=[{"n": "M0 AWID", "t": "bus"}, {"n": "M1 AWID", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "Slave AWID", "t": "bus", "gv": [null, null, null, null, ["1100_00", "110000"], ["1100_10", "110010"], null, null, null, null]}, {"n": "Slave sees", "t": "bus", "gv": [null, null, null, null, ["3=DI", "3"], ["91=DI", "91"], null, null, null, null]}, {"n": "Ordering", "t": "bus", "gv": [null, null, null, null, null, null, ["91=!3", "91\u22603"], ["REDRO ON", "ENON"], null, null]}, {"n": "", "t": "sep"}, {"n": "M0 BID", "t": "bus"}, {"n": "M1 BID", "t": "bus"}];
+const ANS={"p1a": ["1100_00", "110000"], "p1b": ["1100_10", "110010"], "p2a": ["3"], "p2b": ["91"], "p4a": ["6", "2+4"], "p4b": ["on"], "p6": ["1100", "3=DIB"], "d1a": ["2"], "d1b": ["4"], "d2c": ["sey"], "d2d": ["on"], "c1": ["6"], "c2": ["8"], "c3": ["9"], "c4": ["01"], "c5": ["6"], "c6": ["8"], "c7": ["9"], "c8": ["9"]};
+const MODEL={"p5": "Because after expansion two transactions from different masters always carry different IDs at the slave \u2014 the prefix bits differ by construction. Different IDs mean different ordering domains, and AXI4 provides no ordering between domains.<br><br>So there is no ID a master could choose that would place it in the same domain as another master. Case 4's hazard is not an oversight in the protocol; it is a direct consequence of how the fabric namespaces IDs to keep masters distinguishable. Solving it requires a mechanism outside AXI4 \u2014 coherency, or software synchronisation.", "d1c": "Order them relative to each other. Same-ID transactions must complete in address order, so the slave would serialise two entirely unrelated masters' traffic \u2014 one master's slow access would delay the other's responses for no reason.", "d1d": "Which master each response belonged to. The return path routes by ID, so with both masters using ID 3 the interconnect would have no basis for deciding where to send a BID=3 response. It could deliver a response to a master that never issued the request.", "d2a": "Intra-master ordering survives completely \u2014 a master's own same-ID transactions keep the same expanded ID and stay in one domain. Cross-master ordering cannot exist, because the prefix guarantees two masters never share an ID at the slave.<br><br>That is exactly the intended trade: masters are isolated from each other's ordering constraints, at the cost of being unable to express a mutual one.", "d2b": "Because the two masters are in different ordering domains by construction, and AXI4 only orders within a domain. No choice of ARID or AWID at either master can place them in the same domain \u2014 the interconnect will always separate them with the prefix.<br><br>So case 4's hazard cannot be fixed with IDs, waiting, or any other in-protocol mechanism. It needs either hardware coherency, which adds a separate snoop mechanism, or software synchronisation, which builds ordering out of accesses that are individually ordered.", "d3": "The top prefix bit is dropped, so masters whose index differs only in that bit alias to the same slave-side ID. With 4 masters needing 2 prefix bits and only 1 available, masters 0 and 2 collide, as do 1 and 3.<br><br>Two consequences follow. The slave now orders unrelated traffic from the aliased masters together, degrading performance invisibly. And the return path becomes ambiguous \u2014 a response tagged with the aliased ID may be routed to the wrong master, delivering data or a completion to a master that never issued the request.<br><br>It is silent because nothing is illegal: every transaction is well formed and every response is well formed. In a trace, look for two masters' transactions carrying identical slave-side IDs, and for responses arriving at a master with no matching outstanding request.", "r1": "<code>slave_id_width = master_id_width + ceil(log2(num_masters))</code>. The first term is the ID space each master uses independently; the second is the number of bits needed to identify which port a transaction arrived on, so the interconnect can keep masters distinguishable and route responses back.", "r2": "It preserves intra-master ordering completely \u2014 a master's same-ID transactions keep a common expanded ID and stay in one domain. It makes cross-master ordering impossible, because the prefix guarantees two masters never share a slave-side ID and therefore never share an ordering domain.", "r3": "If the slave's ID field is narrower than required, the top prefix bits are truncated and masters alias to the same slave-side ID. The slave then orders unrelated traffic together, and responses may be routed to a master that never issued the request. It is silent because every transaction and response remains individually well formed \u2014 nothing illegal appears on the bus."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}]];
 const STATES=['un','hi','lo'];
 const rv=s=>s.split('').reverse().join('');
 let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;

@@ -437,8 +437,9 @@ function buildWave(){
     if(r.t==='sep'){h+=`<tr class="sep"><td colspan="${CYCLES+1}"></td></tr>`;return;}
     h+=`<tr class="${r.t==='bus'?'busrow':''}"><td class="lbl">${r.n}</td>`;
     for(let c=0;c<CYCLES;c++){
+      const gc = r.gv && r.gv[c] ? ' gradecell' : '';
       h+= r.t==='bus'
-        ? `<td class="cell"><input data-bus="${ri}_${c}" maxlength="8"></td>`
+        ? `<td class="cell${gc}"><input data-bus="${ri}_${c}" maxlength="10"></td>`
         : `<td class="cell un" data-w="${ri}_${c}" onclick="tog(this)"><div class="lvl"></div></td>`;
     }
     h+='</tr>';
@@ -457,15 +458,26 @@ function tog(td){
 function checkWave(){
   let ok=0,bad=0,blank=0;
   ROWS.forEach((r,ri)=>{
-    if(!r.g)return;
-    const g=rv(r.g);
-    for(let c=0;c<CYCLES;c++){
-      const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
-      td.classList.remove('mism','match');
-      const cur=data.wave[`${ri}_${c}`]||'un', want=g[c]==='1'?'hi':'lo';
-      if(cur==='un')blank++;
-      else if(cur===want){ok++;td.classList.add('match');}
-      else{bad++;td.classList.add('mism');}
+    if(r.g){
+      const g=rv(r.g);
+      for(let c=0;c<CYCLES;c++){
+        const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
+        td.classList.remove('mism','match');
+        const cur=data.wave[`${ri}_${c}`]||'un', want=g[c]==='1'?'hi':'lo';
+        if(cur==='un')blank++;
+        else if(cur===want){ok++;td.classList.add('match');}
+        else{bad++;td.classList.add('mism');}
+      }
+    } else if(r.gv){
+      for(let c=0;c<CYCLES;c++){
+        const acc=r.gv[c]; if(!acc)continue;
+        const inp=document.querySelector(`input[data-bus="${ri}_${c}"]`); if(!inp)continue;
+        const td=inp.closest('td'); td.classList.remove('mism','match');
+        const v=norm(inp.value);
+        if(!v){blank++;continue;}
+        if(acc.some(a=>norm(rv(a))===v)){ok++;td.classList.add('match');}
+        else{bad++;td.classList.add('mism');}
+      }
     }
   });
   const el=document.getElementById('wres'); el.classList.add('show');
@@ -475,13 +487,21 @@ function checkWave(){
 function revealWave(){
   if(!confirm('Show the correct waveform? A green line marks the right level.'))return;
   ROWS.forEach((r,ri)=>{
-    if(!r.g)return;
-    const g=rv(r.g);
-    for(let c=0;c<CYCLES;c++){
-      const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
-      td.querySelectorAll('.gold').forEach(e=>e.remove());
-      const d=document.createElement('div'); d.className='gold';
-      d.style.top=(g[c]==='1'?7:25)+'px'; td.appendChild(d);
+    if(r.g){
+      const g=rv(r.g);
+      for(let c=0;c<CYCLES;c++){
+        const td=document.querySelector(`td[data-w="${ri}_${c}"]`); if(!td)continue;
+        td.querySelectorAll('.gold').forEach(e=>e.remove());
+        const d=document.createElement('div'); d.className='gold';
+        d.style.top=(g[c]==='1'?7:25)+'px'; td.appendChild(d);
+      }
+    } else if(r.gv){
+      for(let c=0;c<CYCLES;c++){
+        const acc=r.gv[c]; if(!acc)continue;
+        const inp=document.querySelector(`input[data-bus="${ri}_${c}"]`); if(!inp)continue;
+        inp.value=rv(acc[0]); data.bus[`${ri}_${c}`]=inp.value;
+        inp.closest('td').classList.add('match');
+      }
     }
   });
 }

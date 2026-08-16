@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AXI4 Workbook — Same-ID Ordering</title>
+<title>AXI4 Workbook — Device vs Normal Memory</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
 <style>
   :root{
@@ -243,70 +243,77 @@
 <div class="crumb">
   <a href="../index.html">← all topics</a>
   <span class="sep">·</span>
-  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Read Transactions</span>
-  <select onchange="location.href=this.value+'.html'"><option value="read-01">01 · Single Beat</option><option value="read-02">02 · Burst (INCR)</option><option value="read-03">03 · Multi-ID Reorder</option><option value="read-04" selected>04 · Same-ID Order</option><option value="read-05">05 · WRAP Burst</option><option value="read-06">06 · Error Response</option><option value="read-07">07 · FIXED Burst</option><option value="read-08">08 · Narrow Transfer</option></select>
-  <a class="vlink" href="../visual/read.html" target="_blank" rel="noopener">open visual →</a>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Ordering & Hazards</span>
+  <select onchange="location.href=this.value+'.html'"><option value="ordering-01">01 · WAW Same-ID</option><option value="ordering-02">02 · WAW Diff-ID</option><option value="ordering-03">03 · RAW Same-ID</option><option value="ordering-04">04 · RAW Diff-ID</option><option value="ordering-05">05 · WAR Same-ID</option><option value="ordering-06">06 · RAR Ordering</option><option value="ordering-07" selected>07 · Device vs Memory</option><option value="ordering-08">08 · Deadlock Rules</option><option value="ordering-09">09 · ID Expansion</option><option value="ordering-10">10 · 4KB Boundary</option></select>
+  <a class="vlink" href="../visual/ordering.html" target="_blank" rel="noopener">open visual →</a>
 </div>
 
 <header>
   <div class="topline">
-    <span class="topic">AXI4 Workbook · Case 04 of 8</span>
+    <span class="topic">AXI4 Workbook · Case 07 of 10</span>
     <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
   </div>
-  <h1>Same-ID Ordering</h1>
-  <div class="sub">Case 4 of 8 · Two reads share an ID — the protocol forbids overtaking</div>
+  <h1>Device vs Normal Memory</h1>
+  <div class="sub">Case 7 of 10 · AWCACHE changes what a response means and what may be reordered</div>
   <div class="prog" id="prog"></div>
   <div class="proglabel" id="proglabel">—</div>
 </header>
 
 <h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
 <div class="bg">
-<p class="lead">This is the mirror of the previous case, and the pair is best studied together. Identical stimulus, one field changed, and the guarantee inverts completely. That single field is <code>ARID</code>.</p>
+<p class="lead">Every ordering rule so far has been about IDs and channels. This case is about a different lever entirely: the memory attributes that tell the system how much freedom it has to buffer, merge and reorder your accesses.</p>
 
-<h3>What sharing an ID buys you</h3>
-<p>When two reads carry the same ID, AXI4 guarantees their responses appear on the R channel in the order the addresses were accepted. Read A's beats — all of them, ending with <code>RLAST</code> — must complete before any beat of Read B appears. The slave may fetch in whatever order it pleases internally; what it may not do is let B's data overtake A's on the bus.</p>
+<h3>What AWCACHE encodes</h3>
+<p>Four bits, and the two that matter most for ordering are the low pair:</p>
 
-<p>That guarantee is what lets a master do something very useful: issue several dependent reads back to back without waiting for any of them, and still consume the results in a known order.</p>
-
-<div class="mathblock">
-<span class="cmt">// serialise at the master: wait for each RLAST before next ARVALID</span><br>
-read A  <span class="cmt">→</span> 40 cyc, then read B <span class="cmt">→</span> 40 cyc  <span class="cmt">=</span> <span class="hi">80 cycles</span><br>
-<br>
-<span class="cmt">// pipeline with a shared ID: both addresses out immediately</span><br>
-A and B in flight together, ordered return  <span class="cmt">=</span> <span class="hi">~44 cycles</span><br>
-<br>
-<span class="cmt">// same ordering guarantee, half the time</span>
-</div>
-
-<p>This is the point that gets missed. Same-ID does not mean serialised. The address channel still pipelines; the slave may still have both fetches running concurrently. Only the <i>return order</i> is constrained.</p>
-
-<h3>When you need it</h3>
 <table class="apps">
-<tr><th>Situation</th><th>Why order matters</th></tr>
-<tr><td>Status then data</td><td>Software reads a status register, then a data register whose meaning depends on that status. Seeing them out of order yields a coherent-looking but wrong interpretation</td></tr>
-<tr><td>Descriptor chain</td><td>A DMA engine reads descriptor N, which contains the pointer to N+1. The dependency is real; ordering is not optional</td></tr>
-<tr><td>Producer/consumer flag</td><td>Read the flag, then the payload it guards. Reordered, you read payload that was not yet valid when the flag was checked</td></tr>
-<tr><td>Peripheral FIFO drain</td><td>Successive reads pop successive entries. Out-of-order return would scramble the stream</td></tr>
+<tr><th>Bit</th><th>Name</th><th>Effect when set</th></tr>
+<tr><td>[0]</td><td>Bufferable</td><td>An intermediate agent may return the response on the slave's behalf and complete the write later</td></tr>
+<tr><td>[1]</td><td>Modifiable / Cacheable</td><td>The system may change the transaction — split it, merge it, widen it, or issue a different number of bursts</td></tr>
+<tr><td>[2]</td><td>Read-allocate</td><td>Hint that a cache may allocate on a read miss</td></tr>
+<tr><td>[3]</td><td>Write-allocate</td><td>Hint that a cache may allocate on a write miss</td></tr>
 </table>
 
-<div class="pull">
-<div class="plabel">Where the cost lands</div>
-<p>Sharing an ID couples transactions that may have nothing to do with each other. If a master funnels all its traffic through one ID for safety, a single slow access blocks every subsequent response — you have rebuilt in-order return and thrown away the reason AXI has IDs. ID assignment is a real design decision, not a default.</p>
+<p>The Modifiable bit is the one people underestimate. When it is clear, the transaction that reaches the slave must have the same address, size, burst type and length the master issued. When it is set, the system may combine two writes into one, split a burst, or widen an access — none of which is acceptable for a peripheral register.</p>
+
+<div class="mathblock">
+<span class="cmt">// Device, non-bufferable — AWCACHE = 4'b0000</span><br>
+BRESP means: the write reached <span class="hi">the endpoint</span><br>
+transaction reaches slave <span class="hi">exactly as issued</span><br>
+<br>
+<span class="cmt">// Normal, bufferable — AWCACHE = 4'b0011</span><br>
+BRESP means: <span class="hi">some agent took responsibility</span><br>
+transaction may be <span class="hi">merged, split or widened</span>
 </div>
 
-<h3>The subtlety worth carrying forward</h3>
-<p>Same-ID ordering is a guarantee about the <b>read channel only</b>. It says nothing about reads versus writes, and nothing about when memory actually changes. A read that follows a write to the same address, even with matching IDs, is <i>not</i> ordered against that write — the AR and AW channels are independent and there is no cross-channel guarantee. That case is the RAW hazard, and it is the single most common source of real ordering bugs in SoCs. You will meet it in the Ordering topic; note now that this case does not solve it.</p>
+<h3>The performance consequence</h3>
+<div class="pull">
+<div class="plabel">Device access is serialised</div>
+<p>With non-bufferable attributes, each write must reach the peripheral before its response, so a master issuing dependent device writes pays full round-trip latency on every one. Normal bufferable writes pipeline freely and complete at buffer speed.</p>
+</div>
+
+<p>In the timing diagram for this case, two device writes take six cycles while two normal writes issue back to back in two. That ratio is not an artefact — it is the cost of the guarantee, and it is why marking everything as device "to be safe" is a serious performance mistake.</p>
+
+<h3>Choosing correctly</h3>
+<p>Device attributes are required when the access has side effects or when the endpoint state matters immediately: peripheral control and status registers, FIFO ports, doorbells, anything where a merge or a widened access would touch neighbouring registers.</p>
+
+<p>Normal attributes belong on ordinary memory: buffers, stacks, heaps, framebuffers. There the system is free to optimise because no address has meaning beyond the bytes it holds.</p>
+
+<h3>The bug this creates</h3>
+<p>Marking a peripheral region as normal, bufferable memory is a classic bring-up error. Writes appear to succeed — <code>BRESP=OKAY</code> arrives promptly from a write buffer — but the peripheral has not seen them yet. Software then writes a control register and immediately reads a status register expecting the effect, and gets pre-write state. Worse, with the Modifiable bit set, the interconnect may merge two adjacent register writes into one wider access, writing a register the software never touched.</p>
+
+<p>The symptom is a peripheral that "sometimes ignores configuration", and the cause is one field in a page table entry.</p>
 </div>
 
 <h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
 <div class="config">
-  <table><tr><td class="sig">Read A — ARID</td><td class="val">4'h3</td><td class="note">first transaction</td></tr><tr><td class="sig">Read A — ARADDR</td><td class="val">32'h0000_1000</td><td class="note">status register</td></tr><tr><td class="sig">Read A — ARLEN</td><td class="val">8'h01</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Read B — ARID</td><td class="val">4'h3</td><td class="note">same ID as A</td></tr><tr><td class="sig">Read B — ARADDR</td><td class="val">32'h0000_2000</td><td class="note">data register</td></tr><tr><td class="sig">Read B — ARLEN</td><td class="val">8'h00</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Data bus</td><td class="val">64-bit</td><td class="note">slave interface width</td></tr></table>
-  <div class="cite">Read A is issued first. Read B's data happens to be ready earlier, but may not overtake.</div>
+  <table><tr><td class="sig">Device write 1</td><td class="val">AWCACHE=4'b0000</td><td class="note">UART control at 0xF000</td></tr><tr><td class="sig">Device write 2</td><td class="val">AWCACHE=4'b0000</td><td class="note">UART data at 0xF004</td></tr><tr><td class="sig">Normal write 1</td><td class="val">AWCACHE=4'b0011</td><td class="note">buffer at 0x8000</td></tr><tr><td class="sig">Normal write 2</td><td class="val">AWCACHE=4'b0011</td><td class="note">buffer at 0x8100</td></tr><tr><td class="sig">All writes</td><td class="val">single-beat</td><td class="note">AWSIZE=3'b010</td></tr></table>
+  <div class="cite">The two device writes must be serialised; the two normal writes may pipeline.</div>
 </div>
 
 <h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
 <div class="predict">
-<ol><li>Beats for Read A? <input class="f n" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;For Read B? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which transaction returns first? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Is any other order legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>At which cycle does the earliest legal beat of Read B occur? <input class="f n" data-k="p3"><span class="mark" data-m="p3"></span></li><li>How many R beats appear in total? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;How many RLAST assertions? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>The slave has B's data ready before A's. What must it do with it? <textarea class="f" data-k="p5" placeholder="Be concrete about the slave's internal behaviour."></textarea><div class="model" data-model="p5"></div></li><li>Is the AR channel serialised by the shared ID? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
+<ol><li>For AWCACHE=0000, where must the write have reached before BRESP? <input class="f m" data-k="p1a"><span class="mark" data-m="p1a"></span></li><li>For AWCACHE=0011, where might it have stopped? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which AWCACHE bit permits an agent to answer on the slave's behalf? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span></li><li>Which bit permits the system to merge or split the transaction? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>Cycles for the two device writes here? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;For the two normal writes? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>Why is marking a peripheral region as normal memory dangerous? <textarea class="f" data-k="p5" placeholder="Name two distinct failures."></textarea><div class="model" data-model="p5"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('p')">check section 2</button>
   <button class="t gold" onclick="showAllAns('p')">show answers</button>
@@ -324,11 +331,11 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
   </div>
   <div class="wavescroll"><table class="wave" id="wave"></table></div>
   <div class="waveresult" id="wres"></div>
-  <div class="gridnote">Both transactions carry ARID=3. Note where A's RLAST falls relative to B's first beat.</div>
+  <div class="gridnote">The Ordering row is graded — type STRICT or RELAXED per cycle as the attributes change.</div>
 </div>
 
 <h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
-<div class="derive"><div class="q">Same ID orders responses — does it also serialise the requests?</div><ol class="steps"><li>Can the master assert ARVALID for B before A's RLAST arrives? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Can the slave begin fetching B before finishing A? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>So what exactly is constrained? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>From the background numbers, cycles saved by pipelining rather than waiting: <input class="f m" data-k="d1d"><span class="mark" data-m="d1d"></span></li></ol><div class="q">Choosing IDs is a design decision</div><ol class="steps"><li>A master funnels all traffic through one ID "to be safe". What has it accidentally rebuilt? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Two reads with a genuine dependency. Same ID or different? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Two reads with no dependency, to slaves of very different speed. Same or different? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>State the general principle for assigning IDs in one sentence: <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">Read A (ARID=3) is a read of address X. Read B (ARID=3) is a read of the same address X, issued after a write to X from this same master. Does same-ID ordering guarantee B sees the written value? Explain carefully.</div><textarea class="f" data-k="d3" placeholder="Which channels are involved, and which guarantee applies to which?"></textarea><div class="model" data-model="d3"></div>
+<div class="derive"><div class="q">What the bits actually permit</div><ol class="steps"><li>Bufferable clear. Can an interconnect write buffer send BRESP? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Modifiable clear. May the system merge two adjacent writes? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>Which of those two would corrupt a peripheral register block, and how? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>So which bit matters more for a device region? <textarea class="f" data-k="d1d" placeholder=""></textarea><div class="model" data-model="d1d"></div></li></ol><div class="q">The cost of the guarantee</div><ol class="steps"><li>Device writes here: cycles for two? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span> &nbsp;Normal writes: <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>Where does the extra time go? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>A team marks all regions device "to be safe". What have they done? <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li><li>Name two region types that genuinely require device attributes: <textarea class="f" data-k="d2e" placeholder=""></textarea><div class="model" data-model="d2e"></div></li></ol><div class="q">A peripheral "sometimes ignores configuration writes". The page table marks its region as normal, bufferable, cacheable. Explain both mechanisms by which this produces the symptom, and say which one is harder to detect.</div><textarea class="f" data-k="d3" placeholder="One is about timing, one is about the transaction itself."></textarea><div class="model" data-model="d3"></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('d')">check section 4</button>
   <button class="t gold" onclick="showAllAns('d')">show answers</button>
@@ -337,7 +344,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
-<div class="calc"><div><h4>Read A beat addresses</h4><div class="formula">addr(n) = ARADDR + (n × 2^ARSIZE), ARSIZE=3'b011</div><div class="calcrow"><span>bytes/beat</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>A beat 0</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>A beat 1</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>A end addr</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Pipelining benefit</h4><div class="formula">both slaves 40 cycles, 2 beats each</div><div class="calcrow"><span>serialised total</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>pipelined total</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>cycles saved</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>B addr, single beat</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="calc"><div><h4>Attribute encoding</h4><div class="formula">AWCACHE[3:0]</div><div class="calcrow"><span>device non-buff</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>normal bufferable</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>bufferable bit</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>modifiable bit</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Cost of strictness</h4><div class="formula">from the timing diagram</div><div class="calcrow"><span>device: 2 writes</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>normal: 2 writes</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>ratio</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>device writes in flight</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('c')">check section 5</button>
   <button class="t gold" onclick="showAllAns('c')">show answers</button>
@@ -345,17 +352,17 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
-<div class="tree"><span class="obs">OBSERVED —</span> responses arrive out of order for two same-ID reads<br>
-<span class="arrow">├─</span> <span class="chk">are the IDs genuinely equal on the wire?</span> → check after interconnect <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
-<span class="arrow">└─</span> <span class="chk">confirmed equal?</span> → this is a slave or interconnect protocol violation, not a master bug<br>
+<div class="tree"><span class="obs">OBSERVED —</span> peripheral intermittently ignores configuration<br>
+<span class="arrow">├─</span> <span class="chk">is the region marked bufferable?</span> → BRESP may come from a buffer → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">is it marked modifiable?</span> → writes may be merged or widened → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
 <br>
-<span class="obs">OBSERVED —</span> throughput collapsed after an "ordering fix"<br>
-<span class="arrow">├─</span> <span class="chk">did all traffic get moved onto one ID?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
-<span class="arrow">└─</span> <span class="chk">does the master now wait for RLAST between reads?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="obs">OBSERVED —</span> a register the software never wrote has changed<br>
+<span class="arrow">├─</span> <span class="chk">adjacent register writes merged into one wide access?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="arrow">└─</span> <span class="chk">modifiable bit set on a device region?</span> → must be clear<br>
 <br>
-<span class="obs">OBSERVED —</span> read returns stale data despite matching IDs on the preceding write<br>
-<span class="arrow">├─</span> <span class="chk">was the preceding access a write?</span> → same-ID gives no cross-channel order → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
-<span class="arrow">└─</span> <span class="chk">did the master wait for BRESP?</span> → the only reliable guarantee</div>
+<span class="obs">OBSERVED —</span> system slower than expected on ordinary memory traffic<br>
+<span class="arrow">├─</span> <span class="chk">are normal regions marked device?</span> → every write serialised → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
+<span class="arrow">└─</span> <span class="chk">was this done "to be safe"?</span> → large cost, no benefit on plain memory</div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('t')">check section 6</button>
   <button class="t gold" onclick="showAllAns('t')">show answers</button>
@@ -364,7 +371,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 
 <h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
 <div class="recall">
-<ol><li>Two reads share an ID. List precisely what is ordered and what is not.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain why same-ID ordering does not cost you address-channel pipelining.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Give the one situation where same-ID reads still will not save you, and name the mechanism that will.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<ol><li>State what BRESP=OKAY means under each of the two attribute settings.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain what the Modifiable bit permits and why it is unacceptable on a peripheral.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Give the performance cost of device attributes and say when paying it is correct.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('r')">reveal section 7</button>
   <span class="score" id="sc-r"></span>
@@ -381,14 +388,14 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <div class="casenav">
-  <a href="read-03.html">← Case 03</a>
+  <a href="ordering-06.html">← Case 06</a>
   <span class="dots" id="dots"></span>
-  <a href="read-05.html">Case 05 →</a>
+  <a href="ordering-08.html">Case 08 →</a>
 </div>
 
 <footer>
   <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
-  <span>Read Transactions · Case 04</span>
+  <span>Ordering & Hazards · Case 07</span>
 </footer>
 </div>
 
@@ -401,13 +408,13 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <script>
-const CID='read-04', TID='read', IDX=4, NCASE=8;
+const CID='ordering-07', TID='ordering', IDX=7, NCASE=10;
 const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
 const CYCLES=11;
-const ROWS=[{"n": "ARVALID", "t": "bit", "g": "00000011110"}, {"n": "ARREADY", "t": "bit", "g": "00000010100"}, {"n": "ARID", "t": "bus"}, {"n": "ARADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "RVALID", "t": "bit", "g": "00011100000"}, {"n": "RREADY", "t": "bit", "g": "00011100000"}, {"n": "RID", "t": "bus"}, {"n": "RDATA", "t": "bus"}, {"n": "RLAST", "t": "bit", "g": "00011000000"}];
-const ANS={"p1a": ["2"], "p1b": ["1"], "p2a": ["A", "a"], "p2b": ["on", "enon"], "p3": ["7"], "p4a": ["3"], "p4b": ["2"], "p6": ["on"], "d1a": ["sey"], "d1b": ["sey"], "d1d": ["63"], "d2c": ["emas"], "d2d": ["tnereffid", "ffid"], "c1": ["8"], "c2": ["0001x0"], "c3": ["8001x0"], "c4": ["F001x0"], "c5": ["08"], "c6": ["44"], "c7": ["63"], "c8": ["0002x0"], "t2": ["redro-ni"]};
-const MODEL={"p5": "It must hold B's data until Read A has completed \u2014 that is, until A's final beat has been transferred with RLAST asserted. The slave needs a buffer for the early data; it cannot simply present it and cannot discard it. Note what this implies for slave design: supporting same-ID ordering with concurrent internal fetches requires reorder buffering, which is why some simple slaves choose to serialise their fetches instead and take the latency hit.", "d1c": "Only the order in which responses appear on the R channel. The master may issue both addresses back to back; the slave may fetch both concurrently; the interconnect may route them independently. The single constraint is that A's beats, through RLAST, must appear before B's first beat. Everything upstream of that is unconstrained.", "d2a": "In-order return \u2014 exactly the behaviour AXI's ID mechanism exists to escape. Every transaction now waits behind every earlier one, so one slow access to a distant slave stalls all subsequent responses regardless of where they were headed. The master has kept the correctness it wanted and paid for it with the throughput of every unrelated access.", "d2b": "Share an ID only where an ordering dependency genuinely exists; use distinct IDs everywhere else, since every shared ID is an ordering constraint you are choosing to pay for.", "d3": "No. Same-ID ordering is a guarantee about the read channel only \u2014 it orders R responses against other R responses. The write travelled on AW and W, which are independent channels from AR, and AXI4 provides no cross-channel ordering guarantee at all. The slave may serve the read from memory before the write data has been committed, returning the old value, and that is entirely legal.<br><br>The only reliable guarantee is for the master to wait for the write's BRESP before issuing the read. This is the RAW hazard, and it catches people precisely because matching IDs <i>feel</i> like they should be sufficient.", "r1": "<b>Ordered:</b> the appearance of R beats on the bus \u2014 A's beats through RLAST precede B's first beat. <b>Not ordered:</b> the AR handshakes (both may be issued back to back), the slave's internal fetch order, and anything involving the write channels. The guarantee is about response visibility on one channel, nothing more.", "r2": "Because the constraint applies to the R channel, not the AR channel. The master issues both addresses immediately and both fetches proceed concurrently inside the slave; only the returning data is held in order. You pay for ordering with reorder buffering in the slave, not with address-channel idle time \u2014 which is why pipelining with a shared ID beats waiting for RLAST by roughly the latency of one transaction.", "r3": "A read that must observe a preceding write from the same master. Same-ID does nothing there, because reads and writes travel on independent channels with no cross-channel ordering. The mechanism that works is waiting for the write's BRESP before issuing the read \u2014 the write response is the only signal that the write has taken effect."};
-const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p3": "RLAST beat idx", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d1d": "d1d", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}], ["Section 6 \u2014 Triage", {"t2": "unmapped\u2192RRESP"}]];
+const ROWS=[{"n": "AWVALID", "t": "bit", "g": "00110010010"}, {"n": "AWCACHE", "t": "bus"}, {"n": "AWADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "WVALID", "t": "bit", "g": "00000100100"}, {"n": "WLAST", "t": "bit", "g": "00000100100"}, {"n": "BVALID", "t": "bit", "g": "00001001000"}, {"n": "BRESP", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "Ordering", "t": "bus", "gv": [null, ["TCIRTS"], ["TCIRTS"], ["TCIRTS"], ["TCIRTS"], ["TCIRTS"], ["TCIRTS"], ["DEXALER"], ["DEXALER"], ["DEXALER"], null]}];
+const ANS={"p1a": ["tniopdne eht", "erawdrah eht", "evals eht"], "p1b": ["reffub etirw a", "reffub a"], "p2a": ["elbareffub", "]0["], "p2b": ["elbaifidom", "]1["], "p4a": ["6"], "p4b": ["2"], "d1a": ["on"], "d1b": ["on"], "d2c": ["6"], "d2d": ["2"], "c1": ["0000b'4", "0000"], "c2": ["1100b'4", "1100"], "c3": ["]0[", "0"], "c4": ["]1[", "1"], "c5": ["6"], "c6": ["2"], "c7": ["x3", "3"], "c8": ["1"]};
+const MODEL={"p5": "<b>Premature responses.</b> With the Bufferable bit set, an interconnect write buffer may return BRESP before the peripheral has seen the write. Software that writes a control register and immediately reads status observes pre-configuration state, and concludes the write was ignored.<br><br><b>Transaction modification.</b> With the Modifiable bit set, the system may merge two adjacent register writes into one wider access, or split and widen a transfer. That writes registers the software never addressed \u2014 and on a peripheral, neighbouring registers have side effects.", "d1c": "Merging. If two writes to adjacent registers are combined into a single wider access, the peripheral sees one transaction touching both \u2014 and possibly a third register that happened to fall inside the widened width. Registers with side effects are triggered without the software ever addressing them.<br><br>Premature responses are a timing problem and produce stale reads; merging is a correctness problem and produces state the software never asked for.", "d1d": "Modifiable. A premature response is recoverable \u2014 software that waits or polls correctly will eventually see the effect. A merged or widened transaction has already touched registers that were never addressed, and no amount of waiting undoes that. Bufferable costs you determinism about timing; Modifiable costs you determinism about what was accessed at all.", "d2a": "Into round trips. Each device write must reach the peripheral and its response must return before the next dependent write can be issued, so the master pays the full interconnect-plus-slave latency serially on every access. Normal bufferable writes complete at write-buffer speed and the master issues the next one immediately.", "d2b": "Serialised every write in the system, including all ordinary memory traffic where no guarantee was needed. Buffers, stacks and framebuffers now pay full round-trip latency per access, and the interconnect loses the ability to merge or pipeline anything. The correctness benefit is zero on plain memory, because no address there has meaning beyond the bytes it holds.", "d2e": "Peripheral control and status register blocks, where reads and writes have side effects and neighbouring addresses are unrelated registers. And FIFO or doorbell ports, where the access must reach the hardware exactly as issued \u2014 a merged or widened access would enqueue the wrong number of entries or trigger an unintended port.", "d3": "<b>Timing:</b> the Bufferable bit lets an interconnect buffer answer with BRESP before the peripheral has the data. Software writes configuration, immediately checks status, sees the old state, and concludes the write was ignored. It often appears to work when the code is slower or when a debug print sits between the two accesses.<br><br><b>Transaction modification:</b> the Modifiable bit lets the system merge the configuration write with an adjacent one into a single wider access, or widen it to the bus width. Registers the software never addressed are written with whatever data occupied those lanes.<br><br>The second is much harder to detect. The first shows up as a stale read that a careful trace explains, but the second changes state in a register nobody is looking at, and the consequence surfaces later in an unrelated part of the peripheral's behaviour.", "r1": "With device, non-bufferable attributes, BRESP=OKAY means the write has reached its final destination \u2014 the peripheral register genuinely holds the value. With normal, bufferable attributes it means only that some agent has taken responsibility for completing the write; it may still be sitting in an interconnect buffer.", "r2": "It permits the system to change the transaction \u2014 merge adjacent accesses, split a burst, or widen an access to the bus width. On a peripheral this is unacceptable because neighbouring addresses are unrelated registers with their own side effects, so a merged or widened access writes registers the software never addressed.", "r3": "Device attributes serialise dependent writes, so each pays full round-trip latency instead of completing at buffer speed \u2014 in this case three times the cycles for the same two writes. Paying that is correct wherever accesses have side effects or the endpoint state matters immediately: control and status registers, FIFO ports, doorbells."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}]];
 const STATES=['un','hi','lo'];
 const rv=s=>s.split('').reverse().join('');
 let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;

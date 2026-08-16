@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AXI4 Workbook — Same-ID Ordering</title>
+<title>AXI4 Workbook — WAW — Same ID</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
 <style>
   :root{
@@ -243,70 +243,67 @@
 <div class="crumb">
   <a href="../index.html">← all topics</a>
   <span class="sep">·</span>
-  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Read Transactions</span>
-  <select onchange="location.href=this.value+'.html'"><option value="read-01">01 · Single Beat</option><option value="read-02">02 · Burst (INCR)</option><option value="read-03">03 · Multi-ID Reorder</option><option value="read-04" selected>04 · Same-ID Order</option><option value="read-05">05 · WRAP Burst</option><option value="read-06">06 · Error Response</option><option value="read-07">07 · FIXED Burst</option><option value="read-08">08 · Narrow Transfer</option></select>
-  <a class="vlink" href="../visual/read.html" target="_blank" rel="noopener">open visual →</a>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Ordering & Hazards</span>
+  <select onchange="location.href=this.value+'.html'"><option value="ordering-01" selected>01 · WAW Same-ID</option><option value="ordering-02">02 · WAW Diff-ID</option><option value="ordering-03">03 · RAW Same-ID</option><option value="ordering-04">04 · RAW Diff-ID</option><option value="ordering-05">05 · WAR Same-ID</option><option value="ordering-06">06 · RAR Ordering</option><option value="ordering-07">07 · Device vs Memory</option><option value="ordering-08">08 · Deadlock Rules</option><option value="ordering-09">09 · ID Expansion</option><option value="ordering-10">10 · 4KB Boundary</option></select>
+  <a class="vlink" href="../visual/ordering.html" target="_blank" rel="noopener">open visual →</a>
 </div>
 
 <header>
   <div class="topline">
-    <span class="topic">AXI4 Workbook · Case 04 of 8</span>
+    <span class="topic">AXI4 Workbook · Case 01 of 10</span>
     <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
   </div>
-  <h1>Same-ID Ordering</h1>
-  <div class="sub">Case 4 of 8 · Two reads share an ID — the protocol forbids overtaking</div>
+  <h1>WAW — Same ID</h1>
+  <div class="sub">Case 1 of 10 · Two writes, one address, shared ID — last write wins</div>
   <div class="prog" id="prog"></div>
   <div class="proglabel" id="proglabel">—</div>
 </header>
 
 <h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
 <div class="bg">
-<p class="lead">This is the mirror of the previous case, and the pair is best studied together. Identical stimulus, one field changed, and the guarantee inverts completely. That single field is <code>ARID</code>.</p>
+<p class="lead">This is the one ordering case that behaves exactly as intuition expects, which makes it the right place to start. Establish precisely why it works here, and every later case becomes a question of which of those conditions has been removed.</p>
 
-<h3>What sharing an ID buys you</h3>
-<p>When two reads carry the same ID, AXI4 guarantees their responses appear on the R channel in the order the addresses were accepted. Read A's beats — all of them, ending with <code>RLAST</code> — must complete before any beat of Read B appears. The slave may fetch in whatever order it pleases internally; what it may not do is let B's data overtake A's on the bus.</p>
+<h3>Three guarantees stack up</h3>
+<p>Two writes to the same address with the same <code>AWID</code>. Three separate rules combine, and it is worth separating them because later cases break them one at a time.</p>
 
-<p>That guarantee is what lets a master do something very useful: issue several dependent reads back to back without waiting for any of them, and still consume the results in a known order.</p>
-
-<div class="mathblock">
-<span class="cmt">// serialise at the master: wait for each RLAST before next ARVALID</span><br>
-read A  <span class="cmt">→</span> 40 cyc, then read B <span class="cmt">→</span> 40 cyc  <span class="cmt">=</span> <span class="hi">80 cycles</span><br>
-<br>
-<span class="cmt">// pipeline with a shared ID: both addresses out immediately</span><br>
-A and B in flight together, ordered return  <span class="cmt">=</span> <span class="hi">~44 cycles</span><br>
-<br>
-<span class="cmt">// same ordering guarantee, half the time</span>
-</div>
-
-<p>This is the point that gets missed. Same-ID does not mean serialised. The address channel still pipelines; the slave may still have both fetches running concurrently. Only the <i>return order</i> is constrained.</p>
-
-<h3>When you need it</h3>
 <table class="apps">
-<tr><th>Situation</th><th>Why order matters</th></tr>
-<tr><td>Status then data</td><td>Software reads a status register, then a data register whose meaning depends on that status. Seeing them out of order yields a coherent-looking but wrong interpretation</td></tr>
-<tr><td>Descriptor chain</td><td>A DMA engine reads descriptor N, which contains the pointer to N+1. The dependency is real; ordering is not optional</td></tr>
-<tr><td>Producer/consumer flag</td><td>Read the flag, then the payload it guards. Reordered, you read payload that was not yet valid when the flag was checked</td></tr>
-<tr><td>Peripheral FIFO drain</td><td>Successive reads pop successive entries. Out-of-order return would scramble the stream</td></tr>
+<tr><th>Channel</th><th>What guarantees the order</th></tr>
+<tr><td>AW</td><td>The master issues A before B, and the slave accepts in that order</td></tr>
+<tr><td>W</td><td>AXI4 requires write data in AW-acceptance order <b>regardless of ID</b> — this rule is unconditional</td></tr>
+<tr><td>B</td><td>Same-ID responses must return in address order — this is what the shared ID adds</td></tr>
+<tr><td>Memory</td><td>Because data arrives in order and the ID forces the effects to be ordered, A is committed before B</td></tr>
 </table>
 
-<div class="pull">
-<div class="plabel">Where the cost lands</div>
-<p>Sharing an ID couples transactions that may have nothing to do with each other. If a master funnels all its traffic through one ID for safety, a single slow access blocks every subsequent response — you have rebuilt in-order return and thrown away the reason AXI has IDs. ID assignment is a real design decision, not a default.</p>
+<p>The result is deterministic: memory ends at <code>0xBBBB</code>, every time, on every implementation. Software can rely on "the last write wins" and does, constantly.</p>
+
+<div class="mathblock">
+Mem@0x1000: <span class="hi">OLD</span> <span class="cmt">→</span> <span class="hi">0xAAAA</span> <span class="cmt">→</span> <span class="hi">0xBBBB</span><br>
+<span class="cmt">// deterministic, because the same ID orders the effects</span>
 </div>
 
-<h3>The subtlety worth carrying forward</h3>
-<p>Same-ID ordering is a guarantee about the <b>read channel only</b>. It says nothing about reads versus writes, and nothing about when memory actually changes. A read that follows a write to the same address, even with matching IDs, is <i>not</i> ordered against that write — the AR and AW channels are independent and there is no cross-channel guarantee. That case is the RAW hazard, and it is the single most common source of real ordering bugs in SoCs. You will meet it in the Ordering topic; note now that this case does not solve it.</p>
+<h3>What software builds on this</h3>
+<p>Almost every initialisation sequence assumes it. Write a default, then write the real value. Clear a field, then set it. Store a structure member twice as a computation refines. None of these are exotic — they are ordinary code, and they all depend on same-address writes landing in program order.</p>
+
+<div class="pull">
+<div class="plabel">Where the guarantee ends</div>
+<p>This ordering is between <b>writes</b>, from <b>one master</b>, sharing an <b>ID</b>. Remove any one of those three conditions and the guarantee disappears. Case 2 removes the shared ID; case 3 makes the second access a read; case 4 introduces a second master.</p>
+</div>
+
+<h3>Ordering versus visibility</h3>
+<p>One distinction to hold onto. The guarantee is that A takes effect before B — their relative order. It is not a guarantee about <i>when</i> either becomes visible to another observer. With bufferable memory both writes may sit in an interconnect write buffer after their responses return.</p>
+
+<p>What you can rely on is that no observer will ever see B without also seeing A, because the order is preserved wherever they are held. That is a weaker claim than "the data is in memory" and it is the correct one.</p>
 </div>
 
 <h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
 <div class="config">
-  <table><tr><td class="sig">Read A — ARID</td><td class="val">4'h3</td><td class="note">first transaction</td></tr><tr><td class="sig">Read A — ARADDR</td><td class="val">32'h0000_1000</td><td class="note">status register</td></tr><tr><td class="sig">Read A — ARLEN</td><td class="val">8'h01</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Read B — ARID</td><td class="val">4'h3</td><td class="note">same ID as A</td></tr><tr><td class="sig">Read B — ARADDR</td><td class="val">32'h0000_2000</td><td class="note">data register</td></tr><tr><td class="sig">Read B — ARLEN</td><td class="val">8'h00</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Data bus</td><td class="val">64-bit</td><td class="note">slave interface width</td></tr></table>
-  <div class="cite">Read A is issued first. Read B's data happens to be ready earlier, but may not overtake.</div>
+  <table><tr><td class="sig">Txn A — AWID</td><td class="val">4'h3</td><td class="note">first write</td></tr><tr><td class="sig">Txn A — AWADDR</td><td class="val">32'h0000_1000</td><td class="note">target address</td></tr><tr><td class="sig">Txn A — WDATA</td><td class="val">0xAAAA</td><td class="note">first value</td></tr><tr><td class="sig">Txn B — AWID</td><td class="val">4'h3</td><td class="note">same ID</td></tr><tr><td class="sig">Txn B — AWADDR</td><td class="val">32'h0000_1000</td><td class="note">same address</td></tr><tr><td class="sig">Txn B — WDATA</td><td class="val">0xBBBB</td><td class="note">second value</td></tr><tr><td class="sig">Memory before</td><td class="val">0xOLD</td><td class="note">initial contents</td></tr></table>
+  <div class="cite">Both writes are single-beat. Both addresses are accepted before either data beat is sent.</div>
 </div>
 
 <h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
 <div class="predict">
-<ol><li>Beats for Read A? <input class="f n" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;For Read B? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which transaction returns first? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Is any other order legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>At which cycle does the earliest legal beat of Read B occur? <input class="f n" data-k="p3"><span class="mark" data-m="p3"></span></li><li>How many R beats appear in total? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;How many RLAST assertions? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>The slave has B's data ready before A's. What must it do with it? <textarea class="f" data-k="p5" placeholder="Be concrete about the slave's internal behaviour."></textarea><div class="model" data-model="p5"></div></li><li>Is the AR channel serialised by the shared ID? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
+<ol><li>Final memory value at 0x1000? <input class="f m" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;Is it deterministic? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which BID is delivered first? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Is the other order legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>Which channel guarantee does the shared ID actually add? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span></li><li>Was the W data already ordered before we shared the ID? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>Name the three conditions that must all hold for this determinism. <textarea class="f" data-k="p5" placeholder="Later cases remove them one at a time."></textarea><div class="model" data-model="p5"></div></li><li>Total B beats? <input class="f n" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('p')">check section 2</button>
   <button class="t gold" onclick="showAllAns('p')">show answers</button>
@@ -324,11 +321,11 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
   </div>
   <div class="wavescroll"><table class="wave" id="wave"></table></div>
   <div class="waveresult" id="wres"></div>
-  <div class="gridnote">Both transactions carry ARID=3. Note where A's RLAST falls relative to B's first beat.</div>
+  <div class="gridnote">The Mem@1000 row is graded — trace the memory state cycle by cycle. Type OLD, AAAA or BBBB.</div>
 </div>
 
 <h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
-<div class="derive"><div class="q">Same ID orders responses — does it also serialise the requests?</div><ol class="steps"><li>Can the master assert ARVALID for B before A's RLAST arrives? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Can the slave begin fetching B before finishing A? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>So what exactly is constrained? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>From the background numbers, cycles saved by pipelining rather than waiting: <input class="f m" data-k="d1d"><span class="mark" data-m="d1d"></span></li></ol><div class="q">Choosing IDs is a design decision</div><ol class="steps"><li>A master funnels all traffic through one ID "to be safe". What has it accidentally rebuilt? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Two reads with a genuine dependency. Same ID or different? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Two reads with no dependency, to slaves of very different speed. Same or different? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>State the general principle for assigning IDs in one sentence: <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">Read A (ARID=3) is a read of address X. Read B (ARID=3) is a read of the same address X, issued after a write to X from this same master. Does same-ID ordering guarantee B sees the written value? Explain carefully.</div><textarea class="f" data-k="d3" placeholder="Which channels are involved, and which guarantee applies to which?"></textarea><div class="model" data-model="d3"></div>
+<div class="derive"><div class="q">Separating the three guarantees</div><ol class="steps"><li>Which AXI4 rule orders the W data, and does it depend on the ID? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>Which channel gains a guarantee purely from the shared ID? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>If the IDs differed, which of the four orderings in the table would survive? <textarea class="f" data-k="d1d" placeholder=""></textarea><div class="model" data-model="d1d"></div></li><li>So the shared ID is doing how much of the work here? <textarea class="f" data-k="d1e" placeholder=""></textarea><div class="model" data-model="d1e"></div></li></ol><div class="q">Ordering is not visibility</div><ol class="steps"><li>Both responses have returned. Is the data necessarily in memory? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Which AWCACHE property decides that? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>What can another observer never see? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>State the difference between ordering and visibility in one sentence: <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">Software writes a default value then the real value to the same register, and relies on the second landing last. List every assumption this makes, and say which one is most likely to be violated in a real SoC.</div><textarea class="f" data-k="d3" placeholder="Think about who issues the writes, not just what they write."></textarea><div class="model" data-model="d3"></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('d')">check section 4</button>
   <button class="t gold" onclick="showAllAns('d')">show answers</button>
@@ -337,7 +334,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
-<div class="calc"><div><h4>Read A beat addresses</h4><div class="formula">addr(n) = ARADDR + (n × 2^ARSIZE), ARSIZE=3'b011</div><div class="calcrow"><span>bytes/beat</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>A beat 0</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>A beat 1</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>A end addr</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Pipelining benefit</h4><div class="formula">both slaves 40 cycles, 2 beats each</div><div class="calcrow"><span>serialised total</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>pipelined total</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>cycles saved</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>B addr, single beat</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="calc"><div><h4>Transaction accounting</h4><div class="formula">two single-beat writes, same address</div><div class="calcrow"><span>W beats total</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>B beats total</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>AW handshakes</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>distinct addresses</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Ordering freedom</h4><div class="formula">how many legal outcomes exist</div><div class="calcrow"><span>legal W orders</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>legal B orders</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>possible final values</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>possible finals if IDs differ</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('c')">check section 5</button>
   <button class="t gold" onclick="showAllAns('c')">show answers</button>
@@ -345,17 +342,17 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
-<div class="tree"><span class="obs">OBSERVED —</span> responses arrive out of order for two same-ID reads<br>
-<span class="arrow">├─</span> <span class="chk">are the IDs genuinely equal on the wire?</span> → check after interconnect <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
-<span class="arrow">└─</span> <span class="chk">confirmed equal?</span> → this is a slave or interconnect protocol violation, not a master bug<br>
+<div class="tree"><span class="obs">OBSERVED —</span> final value is the first write, not the second<br>
+<span class="arrow">├─</span> <span class="chk">did both writes carry the same AWID?</span> → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">confirmed same ID on the wire after the interconnect?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
 <br>
-<span class="obs">OBSERVED —</span> throughput collapsed after an "ordering fix"<br>
-<span class="arrow">├─</span> <span class="chk">did all traffic get moved onto one ID?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
-<span class="arrow">└─</span> <span class="chk">does the master now wait for RLAST between reads?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="obs">OBSERVED —</span> B responses arrive out of order for same-ID writes<br>
+<span class="arrow">├─</span> <span class="chk">IDs genuinely equal at the slave?</span> → check after ID expansion<br>
+<span class="arrow">└─</span> <span class="chk">confirmed equal?</span> → slave or interconnect protocol violation → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
 <br>
-<span class="obs">OBSERVED —</span> read returns stale data despite matching IDs on the preceding write<br>
-<span class="arrow">├─</span> <span class="chk">was the preceding access a write?</span> → same-ID gives no cross-channel order → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
-<span class="arrow">└─</span> <span class="chk">did the master wait for BRESP?</span> → the only reliable guarantee</div>
+<span class="obs">OBSERVED —</span> order correct locally, another master sees it differently<br>
+<span class="arrow">├─</span> <span class="chk">bufferable memory?</span> → responses may come from a write buffer → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
+<span class="arrow">└─</span> <span class="chk">observer on a different path to memory?</span> → ordering ≠ visibility</div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('t')">check section 6</button>
   <button class="t gold" onclick="showAllAns('t')">show answers</button>
@@ -364,7 +361,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 
 <h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
 <div class="recall">
-<ol><li>Two reads share an ID. List precisely what is ordered and what is not.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain why same-ID ordering does not cost you address-channel pipelining.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Give the one situation where same-ID reads still will not save you, and name the mechanism that will.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<ol><li>List the four things that must be ordered for "last write wins" to hold, and say which rule provides each.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain why the shared ID adds less than people assume, given AXI4's unconditional W rule.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Distinguish ordering from visibility using this case as the example.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('r')">reveal section 7</button>
   <span class="score" id="sc-r"></span>
@@ -381,14 +378,14 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <div class="casenav">
-  <a href="read-03.html">← Case 03</a>
+  <span class="dis">← start of topic</span>
   <span class="dots" id="dots"></span>
-  <a href="read-05.html">Case 05 →</a>
+  <a href="ordering-02.html">Case 02 →</a>
 </div>
 
 <footer>
   <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
-  <span>Read Transactions · Case 04</span>
+  <span>Ordering & Hazards · Case 01</span>
 </footer>
 </div>
 
@@ -401,13 +398,13 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <script>
-const CID='read-04', TID='read', IDX=4, NCASE=8;
+const CID='ordering-01', TID='ordering', IDX=1, NCASE=10;
 const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
-const CYCLES=11;
-const ROWS=[{"n": "ARVALID", "t": "bit", "g": "00000011110"}, {"n": "ARREADY", "t": "bit", "g": "00000010100"}, {"n": "ARID", "t": "bus"}, {"n": "ARADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "RVALID", "t": "bit", "g": "00011100000"}, {"n": "RREADY", "t": "bit", "g": "00011100000"}, {"n": "RID", "t": "bus"}, {"n": "RDATA", "t": "bus"}, {"n": "RLAST", "t": "bit", "g": "00011000000"}];
-const ANS={"p1a": ["2"], "p1b": ["1"], "p2a": ["A", "a"], "p2b": ["on", "enon"], "p3": ["7"], "p4a": ["3"], "p4b": ["2"], "p6": ["on"], "d1a": ["sey"], "d1b": ["sey"], "d1d": ["63"], "d2c": ["emas"], "d2d": ["tnereffid", "ffid"], "c1": ["8"], "c2": ["0001x0"], "c3": ["8001x0"], "c4": ["F001x0"], "c5": ["08"], "c6": ["44"], "c7": ["63"], "c8": ["0002x0"], "t2": ["redro-ni"]};
-const MODEL={"p5": "It must hold B's data until Read A has completed \u2014 that is, until A's final beat has been transferred with RLAST asserted. The slave needs a buffer for the early data; it cannot simply present it and cannot discard it. Note what this implies for slave design: supporting same-ID ordering with concurrent internal fetches requires reorder buffering, which is why some simple slaves choose to serialise their fetches instead and take the latency hit.", "d1c": "Only the order in which responses appear on the R channel. The master may issue both addresses back to back; the slave may fetch both concurrently; the interconnect may route them independently. The single constraint is that A's beats, through RLAST, must appear before B's first beat. Everything upstream of that is unconstrained.", "d2a": "In-order return \u2014 exactly the behaviour AXI's ID mechanism exists to escape. Every transaction now waits behind every earlier one, so one slow access to a distant slave stalls all subsequent responses regardless of where they were headed. The master has kept the correctness it wanted and paid for it with the throughput of every unrelated access.", "d2b": "Share an ID only where an ordering dependency genuinely exists; use distinct IDs everywhere else, since every shared ID is an ordering constraint you are choosing to pay for.", "d3": "No. Same-ID ordering is a guarantee about the read channel only \u2014 it orders R responses against other R responses. The write travelled on AW and W, which are independent channels from AR, and AXI4 provides no cross-channel ordering guarantee at all. The slave may serve the read from memory before the write data has been committed, returning the old value, and that is entirely legal.<br><br>The only reliable guarantee is for the master to wait for the write's BRESP before issuing the read. This is the RAW hazard, and it catches people precisely because matching IDs <i>feel</i> like they should be sufficient.", "r1": "<b>Ordered:</b> the appearance of R beats on the bus \u2014 A's beats through RLAST precede B's first beat. <b>Not ordered:</b> the AR handshakes (both may be issued back to back), the slave's internal fetch order, and anything involving the write channels. The guarantee is about response visibility on one channel, nothing more.", "r2": "Because the constraint applies to the R channel, not the AR channel. The master issues both addresses immediately and both fetches proceed concurrently inside the slave; only the returning data is held in order. You pay for ordering with reorder buffering in the slave, not with address-channel idle time \u2014 which is why pipelining with a shared ID beats waiting for RLAST by roughly the latency of one transaction.", "r3": "A read that must observe a preceding write from the same master. Same-ID does nothing there, because reads and writes travel on independent channels with no cross-channel ordering. The mechanism that works is waiting for the write's BRESP before issuing the read \u2014 the write response is the only signal that the write has taken effect."};
-const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p3": "RLAST beat idx", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d1d": "d1d", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}], ["Section 6 \u2014 Triage", {"t2": "unmapped\u2192RRESP"}]];
+const CYCLES=10;
+const ROWS=[{"n": "AWVALID", "t": "bit", "g": "0000000110"}, {"n": "AWREADY", "t": "bit", "g": "0000000110"}, {"n": "AWID", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "WVALID", "t": "bit", "g": "0000011000"}, {"n": "WDATA", "t": "bus"}, {"n": "WLAST", "t": "bit", "g": "0000011000"}, {"n": "", "t": "sep"}, {"n": "Mem@1000", "t": "bus", "gv": [["DLO"], ["DLO"], ["DLO"], ["DLO"], ["DLO"], ["AAAA", "AAAAx0"], ["AAAA", "AAAAx0"], ["BBBB", "BBBBx0"], ["BBBB", "BBBBx0"], ["BBBB", "BBBBx0"]]}, {"n": "BVALID", "t": "bit", "g": "0101000000"}, {"n": "BID", "t": "bus"}];
+const ANS={"p1a": ["BBBBx0", "BBBB"], "p1b": ["sey", "citsinimreted"], "p2a": ["A", "3=DIB A"], "p2b": ["on", "reven"], "p4a": ["B", "lennahc B"], "p4b": ["sey"], "p6": ["2"], "d1a": ["B", "lennahc B"], "d2c": ["on"], "d2d": ["elbareffub", "]0[EHCACWA"], "c1": ["2"], "c2": ["2"], "c3": ["2"], "c4": ["1"], "c5": ["1"], "c6": ["1"], "c7": ["1"], "c8": ["2"]};
+const MODEL={"p5": "<b>1.</b> Both accesses are writes \u2014 no read is involved, so no cross-channel question arises.<br><b>2.</b> Both come from one master, so there is a single issue order to preserve.<br><b>3.</b> Both share an AWID, which forces the responses and the memory effects into that order.<br><br>Case 2 removes the third condition, case 3 replaces the second access with a read, and case 4 introduces a second master. Each removal costs a guarantee.", "d1c": "The AXI4 rule that write data must appear on the W channel in the order the addresses were accepted. It does not depend on the ID at all \u2014 it is unconditional, and it exists because AXI4 has no WID, so order is the only mechanism associating data with an address.", "d1d": "The AW order and the W order both survive, because neither depends on the ID. What is lost is the B ordering and, critically, the guarantee about memory effects \u2014 the two writes may be committed in either order, so the final value becomes undefined. That is exactly case 2.", "d1e": "Less than people assume. Two of the four orderings \u2014 AW and W \u2014 hold regardless of ID. The shared ID contributes the response ordering and the commit ordering. It is essential for determinism, but it is not carrying the whole burden, and that matters when you are deciding whether to share IDs elsewhere.", "d2a": "B without A. Whatever ordering the writes have is preserved wherever they are held, so an observer may see neither, or A alone, or both \u2014 but never the second write's effect without the first. That is the useful half of the guarantee even under buffering.", "d2b": "Ordering constrains the sequence in which two writes take effect relative to each other; visibility concerns when either becomes observable to a third party, which depends on buffering and on the observer's path to memory.", "d3": "It assumes both writes come from the same master, that they share an AWID, that no other agent writes the same address in between, and that nothing reorders them below the bus \u2014 a write-combining buffer, for instance.<br><br>The one most likely to be violated is the shared ID. Masters commonly assign IDs per outstanding slot or round-robin rather than per dependency, so two consecutive writes from the same code path can easily leave with different IDs. Everything else about the sequence looks correct, the determinism quietly disappears, and the failure only shows up when the two writes take different amounts of time to complete.", "r1": "AW acceptance order \u2014 the master's issue order. W data order \u2014 the unconditional AXI4 rule that data follows AW acceptance order regardless of ID. B response order \u2014 provided by the shared AWID. And memory commit order, which follows from the same shared ID. Only the last two come from sharing the ID.", "r2": "Because AXI4 orders write data unconditionally, whatever the IDs. Sharing an ID therefore adds nothing on the data path \u2014 it contributes only the response ordering and the commit ordering. People reach for a shared ID believing it is what keeps their data in sequence, when that part was already guaranteed.", "r3": "Ordering here means A commits before B, so the final value is 0xBBBB and no observer can see B's effect without A's. Visibility means whether either has reached memory at a given moment \u2014 with bufferable memory both responses can return while both writes still sit in an interconnect buffer, invisible to a master on a different path."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}]];
 const STATES=['un','hi','lo'];
 const rv=s=>s.split('').reverse().join('');
 let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;

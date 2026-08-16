@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AXI4 Workbook — Same-ID Ordering</title>
+<title>AXI4 Workbook — Handshake Dependencies & Deadlock</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
 <style>
   :root{
@@ -243,70 +243,77 @@
 <div class="crumb">
   <a href="../index.html">← all topics</a>
   <span class="sep">·</span>
-  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Read Transactions</span>
-  <select onchange="location.href=this.value+'.html'"><option value="read-01">01 · Single Beat</option><option value="read-02">02 · Burst (INCR)</option><option value="read-03">03 · Multi-ID Reorder</option><option value="read-04" selected>04 · Same-ID Order</option><option value="read-05">05 · WRAP Burst</option><option value="read-06">06 · Error Response</option><option value="read-07">07 · FIXED Burst</option><option value="read-08">08 · Narrow Transfer</option></select>
-  <a class="vlink" href="../visual/read.html" target="_blank" rel="noopener">open visual →</a>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Ordering & Hazards</span>
+  <select onchange="location.href=this.value+'.html'"><option value="ordering-01">01 · WAW Same-ID</option><option value="ordering-02">02 · WAW Diff-ID</option><option value="ordering-03">03 · RAW Same-ID</option><option value="ordering-04">04 · RAW Diff-ID</option><option value="ordering-05">05 · WAR Same-ID</option><option value="ordering-06">06 · RAR Ordering</option><option value="ordering-07">07 · Device vs Memory</option><option value="ordering-08" selected>08 · Deadlock Rules</option><option value="ordering-09">09 · ID Expansion</option><option value="ordering-10">10 · 4KB Boundary</option></select>
+  <a class="vlink" href="../visual/ordering.html" target="_blank" rel="noopener">open visual →</a>
 </div>
 
 <header>
   <div class="topline">
-    <span class="topic">AXI4 Workbook · Case 04 of 8</span>
+    <span class="topic">AXI4 Workbook · Case 08 of 10</span>
     <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
   </div>
-  <h1>Same-ID Ordering</h1>
-  <div class="sub">Case 4 of 8 · Two reads share an ID — the protocol forbids overtaking</div>
+  <h1>Handshake Dependencies & Deadlock</h1>
+  <div class="sub">Case 8 of 10 · Which signals may wait for which — and the cycles that hang a system</div>
   <div class="prog" id="prog"></div>
   <div class="proglabel" id="proglabel">—</div>
 </header>
 
 <h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
 <div class="bg">
-<p class="lead">This is the mirror of the previous case, and the pair is best studied together. Identical stimulus, one field changed, and the guarantee inverts completely. That single field is <code>ARID</code>.</p>
+<p class="lead">Every AXI channel uses the same two-signal handshake, and the rules about what each signal may depend on are what keep the protocol deadlock-free. Break one and the system stops with no error, no timeout, and no diagnostic.</p>
 
-<h3>What sharing an ID buys you</h3>
-<p>When two reads carry the same ID, AXI4 guarantees their responses appear on the R channel in the order the addresses were accepted. Read A's beats — all of them, ending with <code>RLAST</code> — must complete before any beat of Read B appears. The slave may fetch in whatever order it pleases internally; what it may not do is let B's data overtake A's on the bus.</p>
-
-<p>That guarantee is what lets a master do something very useful: issue several dependent reads back to back without waiting for any of them, and still consume the results in a known order.</p>
-
-<div class="mathblock">
-<span class="cmt">// serialise at the master: wait for each RLAST before next ARVALID</span><br>
-read A  <span class="cmt">→</span> 40 cyc, then read B <span class="cmt">→</span> 40 cyc  <span class="cmt">=</span> <span class="hi">80 cycles</span><br>
-<br>
-<span class="cmt">// pipeline with a shared ID: both addresses out immediately</span><br>
-A and B in flight together, ordered return  <span class="cmt">=</span> <span class="hi">~44 cycles</span><br>
-<br>
-<span class="cmt">// same ordering guarantee, half the time</span>
+<h3>The one absolute rule</h3>
+<div class="pull">
+<div class="plabel">VALID must never wait for READY</div>
+<p>A source must assert <code>VALID</code> as soon as it has something to send, without looking at <code>READY</code>. The reverse is permitted: a destination may wait to see <code>VALID</code> before asserting <code>READY</code>.</p>
 </div>
 
-<p>This is the point that gets missed. Same-ID does not mean serialised. The address channel still pipelines; the slave may still have both fetches running concurrently. Only the <i>return order</i> is constrained.</p>
+<p>The asymmetry is deliberate. If both sides could wait for each other on the same channel, a single channel could deadlock on its own. Making the source unconditional removes that possibility entirely — one side always moves first.</p>
 
-<h3>When you need it</h3>
+<h3>The cross-channel rules</h3>
+<p>Beyond the per-channel rule, AXI4 constrains what may depend on what across channels:</p>
+
 <table class="apps">
-<tr><th>Situation</th><th>Why order matters</th></tr>
-<tr><td>Status then data</td><td>Software reads a status register, then a data register whose meaning depends on that status. Seeing them out of order yields a coherent-looking but wrong interpretation</td></tr>
-<tr><td>Descriptor chain</td><td>A DMA engine reads descriptor N, which contains the pointer to N+1. The dependency is real; ordering is not optional</td></tr>
-<tr><td>Producer/consumer flag</td><td>Read the flag, then the payload it guards. Reordered, you read payload that was not yet valid when the flag was checked</td></tr>
-<tr><td>Peripheral FIFO drain</td><td>Successive reads pop successive entries. Out-of-order return would scramble the stream</td></tr>
+<tr><th>Signal</th><th>May depend on</th><th>Must not depend on</th></tr>
+<tr><td>AWVALID</td><td>nothing</td><td>WVALID, AWREADY, BVALID</td></tr>
+<tr><td>WVALID</td><td>nothing</td><td>AWVALID, WREADY</td></tr>
+<tr><td>AWREADY / WREADY</td><td>the matching VALID</td><td>—</td></tr>
+<tr><td>BVALID</td><td>WLAST having been accepted</td><td>BREADY</td></tr>
+<tr><td>RVALID</td><td>the AR handshake</td><td>RREADY</td></tr>
 </table>
 
-<div class="pull">
-<div class="plabel">Where the cost lands</div>
-<p>Sharing an ID couples transactions that may have nothing to do with each other. If a master funnels all its traffic through one ID for safety, a single slow access blocks every subsequent response — you have rebuilt in-order return and thrown away the reason AXI has IDs. ID assignment is a real design decision, not a default.</p>
+<p>Read the master column carefully. A master's <code>AWVALID</code> may not wait for <code>WVALID</code>, and its <code>WVALID</code> may not wait for <code>AWVALID</code>. This is the rule from the Write topic, restated here as what it actually is: a deadlock-prevention constraint.</p>
+
+<h3>How a cycle forms</h3>
+<div class="mathblock">
+master: AWVALID <span class="cmt">waits for</span> BVALID     <span class="cmt">// "one write at a time"</span><br>
+slave : BVALID  <span class="cmt">waits for</span> WLAST      <span class="cmt">// legal on its own</span><br>
+master: WVALID  <span class="cmt">waits for</span> AWREADY    <span class="cmt">// "address first"</span><br>
+<span class="cmt">──────────────────────────────────</span><br>
+AW <span class="cmt">→</span> B <span class="cmt">→</span> W <span class="cmt">→</span> AW    <span class="hi">cycle — nothing can start</span>
 </div>
 
-<h3>The subtlety worth carrying forward</h3>
-<p>Same-ID ordering is a guarantee about the <b>read channel only</b>. It says nothing about reads versus writes, and nothing about when memory actually changes. A read that follows a write to the same address, even with matching IDs, is <i>not</i> ordered against that write — the AR and AW channels are independent and there is no cross-channel guarantee. That case is the RAW hazard, and it is the single most common source of real ordering bugs in SoCs. You will meet it in the Ordering topic; note now that this case does not solve it.</p>
+<p>Each individual rule looks defensible. A master that issues one write at a time is being careful; a slave that responds only after receiving all data is behaving correctly; a master that sends the address before the data is doing the obvious thing. Together they form a cycle and the system never issues its first write.</p>
+
+<h3>How to check a design</h3>
+<p>Draw the dependency graph. Every arc is "signal X is not asserted until signal Y is". If the graph contains a cycle, you have a potential deadlock — the specification's rules are precisely the arcs that are forbidden in order to make cycles impossible.</p>
+
+<p>The practical version for review: for each <code>VALID</code> in your design, list what gates it. If any <code>VALID</code> is gated by anything on another channel, that is where to look.</p>
+
+<h3>Why it is so hard to debug</h3>
+<p>There is no error. No timeout, no protocol violation a checker can flag, no partial progress. The bus is simply idle with several <code>VALID</code>s asserted and no <code>READY</code> ever arriving. Because it usually appears only in specific integrations — after a register slice is added, or when a particular master meets a particular slave — it often surfaces late, in system bring-up rather than in unit test.</p>
 </div>
 
 <h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
 <div class="config">
-  <table><tr><td class="sig">Read A — ARID</td><td class="val">4'h3</td><td class="note">first transaction</td></tr><tr><td class="sig">Read A — ARADDR</td><td class="val">32'h0000_1000</td><td class="note">status register</td></tr><tr><td class="sig">Read A — ARLEN</td><td class="val">8'h01</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Read B — ARID</td><td class="val">4'h3</td><td class="note">same ID as A</td></tr><tr><td class="sig">Read B — ARADDR</td><td class="val">32'h0000_2000</td><td class="note">data register</td></tr><tr><td class="sig">Read B — ARLEN</td><td class="val">8'h00</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Data bus</td><td class="val">64-bit</td><td class="note">slave interface width</td></tr></table>
-  <div class="cite">Read A is issued first. Read B's data happens to be ready earlier, but may not overtake.</div>
+  <table><tr><td class="sig">Master rule 1</td><td class="val">AWVALID after BVALID</td><td class="note">"one outstanding write at a time"</td></tr><tr><td class="sig">Master rule 2</td><td class="val">WVALID after AWREADY</td><td class="note">"address before data"</td></tr><tr><td class="sig">Slave rule</td><td class="val">BVALID after WLAST</td><td class="note">correct and required</td></tr><tr><td class="sig">Each rule</td><td class="val">defensible alone</td><td class="note">none is obviously wrong</td></tr><tr><td class="sig">Together</td><td class="val">?</td><td class="note">the subject of this case</td></tr></table>
+  <div class="cite">Cycles 1-5 show legal dependencies. Cycles 6-9 show the cycle forming and the system stopping.</div>
 </div>
 
 <h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
 <div class="predict">
-<ol><li>Beats for Read A? <input class="f n" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;For Read B? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which transaction returns first? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Is any other order legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>At which cycle does the earliest legal beat of Read B occur? <input class="f n" data-k="p3"><span class="mark" data-m="p3"></span></li><li>How many R beats appear in total? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;How many RLAST assertions? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>The slave has B's data ready before A's. What must it do with it? <textarea class="f" data-k="p5" placeholder="Be concrete about the slave's internal behaviour."></textarea><div class="model" data-model="p5"></div></li><li>Is the AR channel serialised by the shared ID? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
+<ol><li>May a VALID wait for its own READY? <input class="f m" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;May a READY wait for its VALID? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Why is that asymmetry necessary? <textarea class="f" data-k="p5" placeholder="What would symmetry allow?"></textarea><div class="model" data-model="p5"></div></li><li>May AWVALID be gated on WVALID? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;May BVALID be gated on WLAST? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>Of the three rules in the config, which is legal on its own? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span></li><li>How many arcs form the cycle? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>What does the master observe when it deadlocks? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('p')">check section 2</button>
   <button class="t gold" onclick="showAllAns('p')">show answers</button>
@@ -324,11 +331,11 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
   </div>
   <div class="wavescroll"><table class="wave" id="wave"></table></div>
   <div class="waveresult" id="wres"></div>
-  <div class="gridnote">Both transactions carry ARID=3. Note where A's RLAST falls relative to B's first beat.</div>
+  <div class="gridnote">Both the Legal Dep and Deadlock rows are graded. Trace where legal behaviour ends and the cycle begins.</div>
 </div>
 
 <h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
-<div class="derive"><div class="q">Same ID orders responses — does it also serialise the requests?</div><ol class="steps"><li>Can the master assert ARVALID for B before A's RLAST arrives? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Can the slave begin fetching B before finishing A? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>So what exactly is constrained? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>From the background numbers, cycles saved by pipelining rather than waiting: <input class="f m" data-k="d1d"><span class="mark" data-m="d1d"></span></li></ol><div class="q">Choosing IDs is a design decision</div><ol class="steps"><li>A master funnels all traffic through one ID "to be safe". What has it accidentally rebuilt? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Two reads with a genuine dependency. Same ID or different? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Two reads with no dependency, to slaves of very different speed. Same or different? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>State the general principle for assigning IDs in one sentence: <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">Read A (ARID=3) is a read of address X. Read B (ARID=3) is a read of the same address X, issued after a write to X from this same master. Does same-ID ordering guarantee B sees the written value? Explain carefully.</div><textarea class="f" data-k="d3" placeholder="Which channels are involved, and which guarantee applies to which?"></textarea><div class="model" data-model="d3"></div>
+<div class="derive"><div class="q">The per-channel rule</div><ol class="steps"><li>If both VALID and READY could wait for each other, what could a single channel do? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>Which side is made unconditional to prevent it? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>So on every channel, who always moves first? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li></ol><div class="q">Cross-channel cycles</div><ol class="steps"><li>List the three arcs in the config as X waits for Y: <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Trace the cycle: AW → <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span> → <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span> → AW</li><li>Which single arc does the specification forbid to break it? <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li><li>Why is forbidding one arc sufficient? <textarea class="f" data-k="d2e" placeholder=""></textarea><div class="model" data-model="d2e"></div></li></ol><div class="q">A design works standalone and deadlocks after a register slice is inserted in the write path. Explain how added pipelining can expose a latent dependency cycle that was previously masked.</div><textarea class="f" data-k="d3" placeholder="What did the original timing accidentally guarantee?"></textarea><div class="model" data-model="d3"></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('d')">check section 4</button>
   <button class="t gold" onclick="showAllAns('d')">show answers</button>
@@ -337,7 +344,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
-<div class="calc"><div><h4>Read A beat addresses</h4><div class="formula">addr(n) = ARADDR + (n × 2^ARSIZE), ARSIZE=3'b011</div><div class="calcrow"><span>bytes/beat</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>A beat 0</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>A beat 1</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>A end addr</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Pipelining benefit</h4><div class="formula">both slaves 40 cycles, 2 beats each</div><div class="calcrow"><span>serialised total</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>pipelined total</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>cycles saved</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>B addr, single beat</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="calc"><div><h4>Dependency audit</h4><div class="formula">count the arcs</div><div class="calcrow"><span>legal arcs shown</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>arcs in the cycle</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>forbidden arcs</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>cycles remaining after fix</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Failure characteristics</h4><div class="formula">what the system reports</div><div class="calcrow"><span>error codes raised</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>protocol violations flagged</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>timeouts in AXI4</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>VALIDs stuck asserted</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('c')">check section 5</button>
   <button class="t gold" onclick="showAllAns('c')">show answers</button>
@@ -345,17 +352,17 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
-<div class="tree"><span class="obs">OBSERVED —</span> responses arrive out of order for two same-ID reads<br>
-<span class="arrow">├─</span> <span class="chk">are the IDs genuinely equal on the wire?</span> → check after interconnect <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
-<span class="arrow">└─</span> <span class="chk">confirmed equal?</span> → this is a slave or interconnect protocol violation, not a master bug<br>
+<div class="tree"><span class="obs">OBSERVED —</span> system idle at the first write, several VALIDs asserted<br>
+<span class="arrow">├─</span> <span class="chk">is any VALID gated on another channel?</span> → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">draw the dependency graph</span> → look for a cycle → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
 <br>
-<span class="obs">OBSERVED —</span> throughput collapsed after an "ordering fix"<br>
-<span class="arrow">├─</span> <span class="chk">did all traffic get moved onto one ID?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
-<span class="arrow">└─</span> <span class="chk">does the master now wait for RLAST between reads?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="obs">OBSERVED —</span> no error, no timeout, no checker firing<br>
+<span class="arrow">├─</span> <span class="chk">is anything actually illegal on the wire?</span> → possibly not → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="arrow">└─</span> <span class="chk">deadlock is a design property, not a bus event</span> → static analysis, not simulation<br>
 <br>
-<span class="obs">OBSERVED —</span> read returns stale data despite matching IDs on the preceding write<br>
-<span class="arrow">├─</span> <span class="chk">was the preceding access a write?</span> → same-ID gives no cross-channel order → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
-<span class="arrow">└─</span> <span class="chk">did the master wait for BRESP?</span> → the only reliable guarantee</div>
+<span class="obs">OBSERVED —</span> appears only after adding a register slice<br>
+<span class="arrow">├─</span> <span class="chk">did timing previously mask the cycle?</span> → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
+<span class="arrow">└─</span> <span class="chk">was one side always ready by accident?</span> → the arc existed but never bound</div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('t')">check section 6</button>
   <button class="t gold" onclick="showAllAns('t')">show answers</button>
@@ -364,7 +371,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 
 <h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
 <div class="recall">
-<ol><li>Two reads share an ID. List precisely what is ordered and what is not.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain why same-ID ordering does not cost you address-channel pipelining.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Give the one situation where same-ID reads still will not save you, and name the mechanism that will.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<ol><li>State the per-channel handshake rule and explain the asymmetry.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Describe how three individually reasonable rules can form a deadlock cycle.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Say why deadlock is hard to find in simulation and what technique finds it instead.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('r')">reveal section 7</button>
   <span class="score" id="sc-r"></span>
@@ -381,14 +388,14 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <div class="casenav">
-  <a href="read-03.html">← Case 03</a>
+  <a href="ordering-07.html">← Case 07</a>
   <span class="dots" id="dots"></span>
-  <a href="read-05.html">Case 05 →</a>
+  <a href="ordering-09.html">Case 09 →</a>
 </div>
 
 <footer>
   <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
-  <span>Read Transactions · Case 04</span>
+  <span>Ordering & Hazards · Case 08</span>
 </footer>
 </div>
 
@@ -401,13 +408,13 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <script>
-const CID='read-04', TID='read', IDX=4, NCASE=8;
+const CID='ordering-08', TID='ordering', IDX=8, NCASE=10;
 const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
-const CYCLES=11;
-const ROWS=[{"n": "ARVALID", "t": "bit", "g": "00000011110"}, {"n": "ARREADY", "t": "bit", "g": "00000010100"}, {"n": "ARID", "t": "bus"}, {"n": "ARADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "RVALID", "t": "bit", "g": "00011100000"}, {"n": "RREADY", "t": "bit", "g": "00011100000"}, {"n": "RID", "t": "bus"}, {"n": "RDATA", "t": "bus"}, {"n": "RLAST", "t": "bit", "g": "00011000000"}];
-const ANS={"p1a": ["2"], "p1b": ["1"], "p2a": ["A", "a"], "p2b": ["on", "enon"], "p3": ["7"], "p4a": ["3"], "p4b": ["2"], "p6": ["on"], "d1a": ["sey"], "d1b": ["sey"], "d1d": ["63"], "d2c": ["emas"], "d2d": ["tnereffid", "ffid"], "c1": ["8"], "c2": ["0001x0"], "c3": ["8001x0"], "c4": ["F001x0"], "c5": ["08"], "c6": ["44"], "c7": ["63"], "c8": ["0002x0"], "t2": ["redro-ni"]};
-const MODEL={"p5": "It must hold B's data until Read A has completed \u2014 that is, until A's final beat has been transferred with RLAST asserted. The slave needs a buffer for the early data; it cannot simply present it and cannot discard it. Note what this implies for slave design: supporting same-ID ordering with concurrent internal fetches requires reorder buffering, which is why some simple slaves choose to serialise their fetches instead and take the latency hit.", "d1c": "Only the order in which responses appear on the R channel. The master may issue both addresses back to back; the slave may fetch both concurrently; the interconnect may route them independently. The single constraint is that A's beats, through RLAST, must appear before B's first beat. Everything upstream of that is unconstrained.", "d2a": "In-order return \u2014 exactly the behaviour AXI's ID mechanism exists to escape. Every transaction now waits behind every earlier one, so one slow access to a distant slave stalls all subsequent responses regardless of where they were headed. The master has kept the correctness it wanted and paid for it with the throughput of every unrelated access.", "d2b": "Share an ID only where an ordering dependency genuinely exists; use distinct IDs everywhere else, since every shared ID is an ordering constraint you are choosing to pay for.", "d3": "No. Same-ID ordering is a guarantee about the read channel only \u2014 it orders R responses against other R responses. The write travelled on AW and W, which are independent channels from AR, and AXI4 provides no cross-channel ordering guarantee at all. The slave may serve the read from memory before the write data has been committed, returning the old value, and that is entirely legal.<br><br>The only reliable guarantee is for the master to wait for the write's BRESP before issuing the read. This is the RAW hazard, and it catches people precisely because matching IDs <i>feel</i> like they should be sufficient.", "r1": "<b>Ordered:</b> the appearance of R beats on the bus \u2014 A's beats through RLAST precede B's first beat. <b>Not ordered:</b> the AR handshakes (both may be issued back to back), the slave's internal fetch order, and anything involving the write channels. The guarantee is about response visibility on one channel, nothing more.", "r2": "Because the constraint applies to the R channel, not the AR channel. The master issues both addresses immediately and both fetches proceed concurrently inside the slave; only the returning data is held in order. You pay for ordering with reorder buffering in the slave, not with address-channel idle time \u2014 which is why pipelining with a shared ID beats waiting for RLAST by roughly the latency of one transaction.", "r3": "A read that must observe a preceding write from the same master. Same-ID does nothing there, because reads and writes travel on independent channels with no cross-channel ordering. The mechanism that works is waiting for the write's BRESP before issuing the read \u2014 the write response is the only signal that the write has taken effect."};
-const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p3": "RLAST beat idx", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d1d": "d1d", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}], ["Section 6 \u2014 Triage", {"t2": "unmapped\u2192RRESP"}]];
+const CYCLES=10;
+const ROWS=[{"n": "AWVALID", "t": "bit", "g": "0000111110"}, {"n": "AWREADY", "t": "bit", "g": "0000111000"}, {"n": "WVALID", "t": "bit", "g": "0000111100"}, {"n": "WREADY", "t": "bit", "g": "0000110000"}, {"n": "BVALID", "t": "bit", "g": "0000100000"}, {"n": "BREADY", "t": "bit", "g": "0000100000"}, {"n": "", "t": "sep"}, {"n": "Legal Dep", "t": "bus", "gv": [null, [".dni WA", "WA"], [".dni W", "W"], ["WA-<S", "WAS"], ["W-<S", "WS"], ["TSALW-<B", "TSALWB"], null, null, null, null]}, {"n": "Deadlock", "t": "bus", "gv": [null, null, null, null, null, null, ["PUTES"], ["?B>-WA", "BWA"], ["?W>-B", "WB"], ["!KCUTS", "KCUTS"]]}];
+const ANS={"p1a": ["on"], "p1b": ["sey"], "p2a": ["on"], "p2b": ["sey"], "p4a": ["elur evals eht", "evals"], "p4b": ["3"], "p6": ["gnihton", "ecnelis"], "d1a": ["DILAV", "ecruos eht"], "d1b": ["ecruos eht", "DILAV"], "d2c": ["B"], "d2d": ["W"], "c1": ["5"], "c2": ["3"], "c3": ["1"], "c4": ["0", "enon"], "c5": ["0", "enon"], "c6": ["0", "enon"], "c7": ["0", "enon"], "c8": ["2"]};
+const MODEL={"p5": "Symmetry would let a single channel deadlock on its own. If the source waited to see READY before asserting VALID, and the destination waited to see VALID before asserting READY, neither condition could ever become true \u2014 the channel would stall permanently with nothing to blame.<br><br>Making the source unconditional guarantees that one side always moves first, so every channel can always make progress on its own. All remaining deadlock risk then comes from cross-channel dependencies, which is a much smaller and more auditable surface.", "d1c": "Deadlock on its own, with no other channel involved. Both sides would sit waiting for a signal that the other was withholding for exactly the same reason, and nothing external could break the tie.", "d2a": "AWVALID waits for BVALID. BVALID waits for WLAST, which requires WVALID. WVALID waits for AWREADY, which requires AWVALID. Each arc is a signal being withheld until another is observed.", "d2b": "The arc from AWVALID to BVALID \u2014 more precisely, the rule that a master's AWVALID must not depend on any other channel. The specification makes master VALID signals unconditional, which removes that arc by construction.<br><br>The slave's BVALID-after-WLAST arc is required and cannot be removed, and the master's WVALID-after-AWREADY arc is also forbidden by the same rule, so two of the three are eliminated.", "d2e": "Because a cycle needs every arc present. Removing any single arc breaks it, and the specification removes the ones that belong to the master because the master is the side that can always be made unconditional \u2014 it is the source on both AW and W. The slave retains its legitimate dependency on WLAST, which is safe once no master-side arc can close the loop.", "d3": "The original timing accidentally guaranteed that one side was always ready when the other needed it. If a slave asserted AWREADY combinationally and always accepted immediately, a master that gated WVALID on AWREADY never actually waited \u2014 the arc existed in the logic but never bound, because the condition was already true.<br><br>A register slice inserts a cycle of latency, so AWREADY is no longer available in the same cycle. Now the master genuinely waits, the arc becomes live, and the cycle closes. Nothing about the master or slave changed; the timing that masked the dependency did.<br><br>This is why dependency cycles must be found by inspecting the logic rather than by testing an integration that happens to work.", "r1": "VALID must never wait for READY; READY may wait for VALID. The asymmetry ensures one side always moves first, so no single channel can deadlock in isolation \u2014 if both could wait for the other, the channel would stall permanently with no external event able to break it.", "r2": "A master that issues one write at a time gates AWVALID on BVALID. A slave correctly gates BVALID on having received WLAST. A master that sends address before data gates WVALID on AWREADY. Each is defensible alone, but together they form AW \u2192 B \u2192 W \u2192 AW, and nothing can start.", "r3": "Because it produces no error, no timeout and no protocol violation \u2014 the bus is simply idle with VALIDs asserted, so there is nothing for a checker to flag. And it may be masked by timing that happens to make a dependency never bind. The technique that finds it is static analysis: draw the dependency graph of what gates each VALID and look for a cycle."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}]];
 const STATES=['un','hi','lo'];
 const rv=s=>s.split('').reverse().join('');
 let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;

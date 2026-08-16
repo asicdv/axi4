@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AXI4 Workbook — Same-ID Ordering</title>
+<title>AXI4 Workbook — The 4KB Boundary Rule</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✎</text></svg>">
 <style>
   :root{
@@ -243,70 +243,74 @@
 <div class="crumb">
   <a href="../index.html">← all topics</a>
   <span class="sep">·</span>
-  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Read Transactions</span>
-  <select onchange="location.href=this.value+'.html'"><option value="read-01">01 · Single Beat</option><option value="read-02">02 · Burst (INCR)</option><option value="read-03">03 · Multi-ID Reorder</option><option value="read-04" selected>04 · Same-ID Order</option><option value="read-05">05 · WRAP Burst</option><option value="read-06">06 · Error Response</option><option value="read-07">07 · FIXED Burst</option><option value="read-08">08 · Narrow Transfer</option></select>
-  <a class="vlink" href="../visual/read.html" target="_blank" rel="noopener">open visual →</a>
+  <span style="font-family:var(--sans);font-size:13.5px;color:var(--mid)">Ordering & Hazards</span>
+  <select onchange="location.href=this.value+'.html'"><option value="ordering-01">01 · WAW Same-ID</option><option value="ordering-02">02 · WAW Diff-ID</option><option value="ordering-03">03 · RAW Same-ID</option><option value="ordering-04">04 · RAW Diff-ID</option><option value="ordering-05">05 · WAR Same-ID</option><option value="ordering-06">06 · RAR Ordering</option><option value="ordering-07">07 · Device vs Memory</option><option value="ordering-08">08 · Deadlock Rules</option><option value="ordering-09">09 · ID Expansion</option><option value="ordering-10" selected>10 · 4KB Boundary</option></select>
+  <a class="vlink" href="../visual/ordering.html" target="_blank" rel="noopener">open visual →</a>
 </div>
 
 <header>
   <div class="topline">
-    <span class="topic">AXI4 Workbook · Case 04 of 8</span>
+    <span class="topic">AXI4 Workbook · Case 10 of 10</span>
     <span class="savestate"><span class="dot" id="dot"></span><span id="savetxt">loading…</span></span>
   </div>
-  <h1>Same-ID Ordering</h1>
-  <div class="sub">Case 4 of 8 · Two reads share an ID — the protocol forbids overtaking</div>
+  <h1>The 4KB Boundary Rule</h1>
+  <div class="sub">Case 10 of 10 · Why a burst may not cross a page, and how masters must split</div>
   <div class="prog" id="prog"></div>
   <div class="proglabel" id="proglabel">—</div>
 </header>
 
 <h2><span class="num">0</span> Background <span class="hint">read this first — context before mechanics</span></h2>
 <div class="bg">
-<p class="lead">This is the mirror of the previous case, and the pair is best studied together. Identical stimulus, one field changed, and the guarantee inverts completely. That single field is <code>ARID</code>.</p>
+<p class="lead">A single <code>INCR</code> burst must not cross a 4KB-aligned address boundary. It is the one absolute address rule in AXI4, and the reason is nothing to do with the bus — it is about what a page means.</p>
 
-<h3>What sharing an ID buys you</h3>
-<p>When two reads carry the same ID, AXI4 guarantees their responses appear on the R channel in the order the addresses were accepted. Read A's beats — all of them, ending with <code>RLAST</code> — must complete before any beat of Read B appears. The slave may fetch in whatever order it pleases internally; what it may not do is let B's data overtake A's on the bus.</p>
+<h3>Why 4KB</h3>
+<p>4KB is the smallest page size in essentially every MMU that matters. A page is the unit at which the system assigns properties, and two adjacent pages can differ in every one of them:</p>
 
-<p>That guarantee is what lets a master do something very useful: issue several dependent reads back to back without waiting for any of them, and still consume the results in a known order.</p>
-
-<div class="mathblock">
-<span class="cmt">// serialise at the master: wait for each RLAST before next ARVALID</span><br>
-read A  <span class="cmt">→</span> 40 cyc, then read B <span class="cmt">→</span> 40 cyc  <span class="cmt">=</span> <span class="hi">80 cycles</span><br>
-<br>
-<span class="cmt">// pipeline with a shared ID: both addresses out immediately</span><br>
-A and B in flight together, ordered return  <span class="cmt">=</span> <span class="hi">~44 cycles</span><br>
-<br>
-<span class="cmt">// same ordering guarantee, half the time</span>
-</div>
-
-<p>This is the point that gets missed. Same-ID does not mean serialised. The address channel still pipelines; the slave may still have both fetches running concurrently. Only the <i>return order</i> is constrained.</p>
-
-<h3>When you need it</h3>
 <table class="apps">
-<tr><th>Situation</th><th>Why order matters</th></tr>
-<tr><td>Status then data</td><td>Software reads a status register, then a data register whose meaning depends on that status. Seeing them out of order yields a coherent-looking but wrong interpretation</td></tr>
-<tr><td>Descriptor chain</td><td>A DMA engine reads descriptor N, which contains the pointer to N+1. The dependency is real; ordering is not optional</td></tr>
-<tr><td>Producer/consumer flag</td><td>Read the flag, then the payload it guards. Reordered, you read payload that was not yet valid when the flag was checked</td></tr>
-<tr><td>Peripheral FIFO drain</td><td>Successive reads pop successive entries. Out-of-order return would scramble the stream</td></tr>
+<tr><th>Property</th><th>Why it breaks a straddling burst</th></tr>
+<tr><td>Physical mapping</td><td>Virtually contiguous pages are frequently not physically contiguous. The second half of the burst belongs at a completely different physical address</td></tr>
+<tr><td>Memory type</td><td>One page normal, the next device. Half the burst may be merged and buffered; half must not be</td></tr>
+<tr><td>Permissions</td><td>One page writable, the next read-only. Half the burst is permitted and half is a violation</td></tr>
+<tr><td>Target slave</td><td>The decoder may route the two halves to entirely different slaves</td></tr>
 </table>
 
-<div class="pull">
-<div class="plabel">Where the cost lands</div>
-<p>Sharing an ID couples transactions that may have nothing to do with each other. If a master funnels all its traffic through one ID for safety, a single slow access blocks every subsequent response — you have rebuilt in-order return and thrown away the reason AXI has IDs. ID assignment is a real design decision, not a default.</p>
+<p>A burst carries one address and one set of attributes. If it spans two pages, there is no correct interpretation — which is why the protocol forbids it outright rather than defining behaviour.</p>
+
+<h3>The check</h3>
+<div class="mathblock">
+end_addr <span class="cmt">=</span> AWADDR + (AWLEN+1) × 2^AWSIZE − 1<br>
+legal    <span class="cmt">⟺</span> AWADDR[31:12] <span class="cmt">==</span> end_addr[31:12]<br>
+<br>
+<span class="cmt">// 0x0FF0 + 32 − 1 = 0x100F</span><br>
+<span class="cmt">// page 0x0 vs page 0x1  →</span> <span class="hi">ILLEGAL</span>
 </div>
 
-<h3>The subtlety worth carrying forward</h3>
-<p>Same-ID ordering is a guarantee about the <b>read channel only</b>. It says nothing about reads versus writes, and nothing about when memory actually changes. A read that follows a write to the same address, even with matching IDs, is <i>not</i> ordered against that write — the AR and AW channels are independent and there is no cross-channel guarantee. That case is the RAW hazard, and it is the single most common source of real ordering bugs in SoCs. You will meet it in the Ordering topic; note now that this case does not solve it.</p>
+<h3>Which burst types are affected</h3>
+<div class="pull">
+<div class="plabel">Only INCR can violate it</div>
+<p><code>FIXED</code> never leaves one address. <code>WRAP</code> is confined to its own aligned block of at most 2KB. Only <code>INCR</code> walks forward far enough to cross a boundary, so only <code>INCR</code> needs the check.</p>
+</div>
+
+<h3>Splitting</h3>
+<p>A master that needs to transfer across a boundary issues two bursts: one ending at the last address in the first page, one starting at the base of the next. In this case a 32-byte transfer from 0x0FF0 becomes 16 bytes from 0x0FF0 and 16 bytes from 0x1000, with two <code>AW</code> handshakes and two responses.</p>
+
+<p>DMA engines do this automatically and it is one of the things worth checking in a new one. Hand-written masters and simple test benches frequently do not, which is why this is a recurring bring-up bug.</p>
+
+<h3>The failure mode</h3>
+<p>What happens when you violate it is implementation-defined, and that is the problem. A well-behaved interconnect returns <code>DECERR</code>. A less careful one may route the whole burst to the slave that owns the first address — so the tail of the transfer lands at the wrong physical location, in a different device's registers, with no error at all.</p>
+
+<p>Silent misdirection into another peripheral's address space is the worst realistic outcome, and it is why this check belongs in your protocol monitor rather than only in the master.</p>
 </div>
 
 <h2><span class="num">1</span> Given Configuration <span class="hint">everything you need — nothing you don't</span></h2>
 <div class="config">
-  <table><tr><td class="sig">Read A — ARID</td><td class="val">4'h3</td><td class="note">first transaction</td></tr><tr><td class="sig">Read A — ARADDR</td><td class="val">32'h0000_1000</td><td class="note">status register</td></tr><tr><td class="sig">Read A — ARLEN</td><td class="val">8'h01</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Read B — ARID</td><td class="val">4'h3</td><td class="note">same ID as A</td></tr><tr><td class="sig">Read B — ARADDR</td><td class="val">32'h0000_2000</td><td class="note">data register</td></tr><tr><td class="sig">Read B — ARLEN</td><td class="val">8'h00</td><td class="note">encoded burst length</td></tr><tr><td class="sig">Data bus</td><td class="val">64-bit</td><td class="note">slave interface width</td></tr></table>
-  <div class="cite">Read A is issued first. Read B's data happens to be ready earlier, but may not overtake.</div>
+  <table><tr><td class="sig">AWADDR</td><td class="val">32'h0000_0FF0</td><td class="note">start address</td></tr><tr><td class="sig">AWLEN</td><td class="val">8'h07</td><td class="note">encoded burst length</td></tr><tr><td class="sig">AWSIZE</td><td class="val">3'b010</td><td class="note">encoded transfer size</td></tr><tr><td class="sig">AWBURST</td><td class="val">2'b01</td><td class="note">burst type</td></tr><tr><td class="sig">Transfer size</td><td class="val">32 bytes</td><td class="note">8 beats × 4 bytes</td></tr><tr><td class="sig">Page size</td><td class="val">4KB</td><td class="note">the boundary that matters</td></tr></table>
+  <div class="cite">This burst as configured is illegal. The master must detect that and split it.</div>
 </div>
 
 <h2><span class="num">2</span> Predict Before Viewing <span class="hint">commit before you check</span></h2>
 <div class="predict">
-<ol><li>Beats for Read A? <input class="f n" data-k="p1a"><span class="mark" data-m="p1a"></span> &nbsp;For Read B? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span></li><li>Which transaction returns first? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Is any other order legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>At which cycle does the earliest legal beat of Read B occur? <input class="f n" data-k="p3"><span class="mark" data-m="p3"></span></li><li>How many R beats appear in total? <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> &nbsp;How many RLAST assertions? <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>The slave has B's data ready before A's. What must it do with it? <textarea class="f" data-k="p5" placeholder="Be concrete about the slave's internal behaviour."></textarea><div class="model" data-model="p5"></div></li><li>Is the AR channel serialised by the shared ID? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li></ol>
+<ol><li>End address of the burst as configured? <input class="f m" data-k="p1a"><span class="mark" data-m="p1a"></span></li><li>Start page? <input class="f m" data-k="p1b"><span class="mark" data-m="p1b"></span> &nbsp;End page? <input class="f m" data-k="p2a"><span class="mark" data-m="p2a"></span> &nbsp;Legal? <input class="f m" data-k="p2b"><span class="mark" data-m="p2b"></span></li><li>After splitting: first burst start <input class="f m" data-k="p4a"><span class="mark" data-m="p4a"></span> and AWLEN <input class="f m" data-k="p4b"><span class="mark" data-m="p4b"></span></li><li>Second burst start <input class="f m" data-k="p4c"><span class="mark" data-m="p4c"></span> and AWLEN <input class="f m" data-k="p4d"><span class="mark" data-m="p4d"></span></li><li>Which burst types can violate this rule? <input class="f m" data-k="p6"><span class="mark" data-m="p6"></span></li><li>Name three page properties that can differ across the boundary. <textarea class="f" data-k="p5" placeholder="Any of them breaks a straddling burst."></textarea><div class="model" data-model="p5"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('p')">check section 2</button>
   <button class="t gold" onclick="showAllAns('p')">show answers</button>
@@ -324,11 +328,11 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
   </div>
   <div class="wavescroll"><table class="wave" id="wave"></table></div>
   <div class="waveresult" id="wres"></div>
-  <div class="gridnote">Both transactions carry ARID=3. Note where A's RLAST falls relative to B's first beat.</div>
+  <div class="gridnote">The Page row is graded — trace the boundary check and then the two legal sub-bursts.</div>
 </div>
 
 <h2><span class="num">4</span> First Principles <span class="hint">why the rule exists, not what it is</span></h2>
-<div class="derive"><div class="q">Same ID orders responses — does it also serialise the requests?</div><ol class="steps"><li>Can the master assert ARVALID for B before A's RLAST arrives? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Can the slave begin fetching B before finishing A? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>So what exactly is constrained? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li><li>From the background numbers, cycles saved by pipelining rather than waiting: <input class="f m" data-k="d1d"><span class="mark" data-m="d1d"></span></li></ol><div class="q">Choosing IDs is a design decision</div><ol class="steps"><li>A master funnels all traffic through one ID "to be safe". What has it accidentally rebuilt? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Two reads with a genuine dependency. Same ID or different? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>Two reads with no dependency, to slaves of very different speed. Same or different? <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span></li><li>State the general principle for assigning IDs in one sentence: <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li></ol><div class="q">Read A (ARID=3) is a read of address X. Read B (ARID=3) is a read of the same address X, issued after a write to X from this same master. Does same-ID ordering guarantee B sees the written value? Explain carefully.</div><textarea class="f" data-k="d3" placeholder="Which channels are involved, and which guarantee applies to which?"></textarea><div class="model" data-model="d3"></div>
+<div class="derive"><div class="q">Why a page is the unit</div><ol class="steps"><li>Two virtually adjacent pages. Are they necessarily physically adjacent? <input class="f m" data-k="d1a"><span class="mark" data-m="d1a"></span></li><li>Can one be normal memory and the next device? <input class="f m" data-k="d1b"><span class="mark" data-m="d1b"></span></li><li>A burst carries how many sets of attributes? <input class="f m" data-k="d2c"><span class="mark" data-m="d2c"></span></li><li>So why forbid rather than define the behaviour? <textarea class="f" data-k="d1c" placeholder=""></textarea><div class="model" data-model="d1c"></div></li></ol><div class="q">Detection and splitting</div><ol class="steps"><li>Write the end-address expression: end = AWADDR + <input class="f m" data-k="d2d"><span class="mark" data-m="d2d"></span> − 1</li><li>Which address bits are compared? <textarea class="f" data-k="d2a" placeholder=""></textarea><div class="model" data-model="d2a"></div></li><li>Why can WRAP never violate the rule? <textarea class="f" data-k="d2b" placeholder=""></textarea><div class="model" data-model="d2b"></div></li><li>What is the worst realistic outcome of violating it? <textarea class="f" data-k="d2e" placeholder=""></textarea><div class="model" data-model="d2e"></div></li></ol><div class="q">Your DMA engine does not split at 4KB boundaries and the interconnect does not return DECERR. Describe precisely what happens to the tail of the transfer and why this is worse than an error.</div><textarea class="f" data-k="d3" placeholder="Where does the decoder send it?"></textarea><div class="model" data-model="d3"></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('d')">check section 4</button>
   <button class="t gold" onclick="showAllAns('d')">show answers</button>
@@ -337,7 +341,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">5</span> Work the Arithmetic <span class="hint">by hand — build the reflex</span></h2>
-<div class="calc"><div><h4>Read A beat addresses</h4><div class="formula">addr(n) = ARADDR + (n × 2^ARSIZE), ARSIZE=3'b011</div><div class="calcrow"><span>bytes/beat</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>A beat 0</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>A beat 1</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>A end addr</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div></div><div><h4>Pipelining benefit</h4><div class="formula">both slaves 40 cycles, 2 beats each</div><div class="calcrow"><span>serialised total</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div><div class="calcrow"><span>pipelined total</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>cycles saved</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>B addr, single beat</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div></div></div>
+<div class="calc"><div><h4>Boundary check</h4><div class="formula">end = AWADDR + (AWLEN+1)×2^AWSIZE − 1</div><div class="calcrow"><span>bytes/beat</span><input class="f" data-k="c1"><span class="mark" data-m="c1"></span></div><div class="calcrow"><span>total bytes</span><input class="f" data-k="c2"><span class="mark" data-m="c2"></span></div><div class="calcrow"><span>end addr</span><input class="f" data-k="c3"><span class="mark" data-m="c3"></span></div><div class="calcrow"><span>start page</span><input class="f" data-k="c4"><span class="mark" data-m="c4"></span></div><div class="calcrow"><span>end page</span><input class="f" data-k="c5"><span class="mark" data-m="c5"></span></div></div><div><h4>The split</h4><div class="formula">two legal bursts</div><div class="calcrow"><span>burst 1 start</span><input class="f" data-k="c6"><span class="mark" data-m="c6"></span></div><div class="calcrow"><span>burst 1 bytes</span><input class="f" data-k="c7"><span class="mark" data-m="c7"></span></div><div class="calcrow"><span>burst 2 start</span><input class="f" data-k="c8"><span class="mark" data-m="c8"></span></div><div class="calcrow"><span>burst 2 bytes</span><input class="f" data-k="c9"><span class="mark" data-m="c9"></span></div><h4 style="margin-top:16px">SPLIT</h4><div class="calcrow"><span>AW handshakes</span><input class="f" data-k="c10"><span class="mark" data-m="c10"></span></div><div class="calcrow"><span>B responses</span><input class="f" data-k="c11"><span class="mark" data-m="c11"></span></div></div></div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('c')">check section 5</button>
   <button class="t gold" onclick="showAllAns('c')">show answers</button>
@@ -345,17 +349,17 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <h2><span class="num">6</span> Bench Triage <span class="hint">fill from bugs you have seen</span></h2>
-<div class="tree"><span class="obs">OBSERVED —</span> responses arrive out of order for two same-ID reads<br>
-<span class="arrow">├─</span> <span class="chk">are the IDs genuinely equal on the wire?</span> → check after interconnect <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
-<span class="arrow">└─</span> <span class="chk">confirmed equal?</span> → this is a slave or interconnect protocol violation, not a master bug<br>
+<div class="tree"><span class="obs">OBSERVED —</span> DECERR on a write that should be in range<br>
+<span class="arrow">├─</span> <span class="chk">compute start + (AWLEN+1)×2^AWSIZE − 1</span> → <input class="f m" data-k="t1"><span class="mark" data-m="t1"></span><br>
+<span class="arrow">└─</span> <span class="chk">do start and end pages match?</span> → if not, the burst is illegal → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
 <br>
-<span class="obs">OBSERVED —</span> throughput collapsed after an "ordering fix"<br>
-<span class="arrow">├─</span> <span class="chk">did all traffic get moved onto one ID?</span> → <input class="f m" data-k="t2" style="width:150px"><span class="mark" data-m="t2"></span><br>
-<span class="arrow">└─</span> <span class="chk">does the master now wait for RLAST between reads?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="obs">OBSERVED —</span> data appears in an unrelated peripheral's registers<br>
+<span class="arrow">├─</span> <span class="chk">did a burst cross into that peripheral's page?</span> → <input class="f m" data-k="t3"><span class="mark" data-m="t3"></span><br>
+<span class="arrow">└─</span> <span class="chk">interconnect routing the whole burst by its first address?</span> → silent misdirection<br>
 <br>
-<span class="obs">OBSERVED —</span> read returns stale data despite matching IDs on the preceding write<br>
-<span class="arrow">├─</span> <span class="chk">was the preceding access a write?</span> → same-ID gives no cross-channel order → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
-<span class="arrow">└─</span> <span class="chk">did the master wait for BRESP?</span> → the only reliable guarantee</div>
+<span class="obs">OBSERVED —</span> DMA works for aligned buffers, corrupts unaligned ones<br>
+<span class="arrow">├─</span> <span class="chk">does the engine split at 4KB?</span> → <input class="f m" data-k="t4"><span class="mark" data-m="t4"></span><br>
+<span class="arrow">└─</span> <span class="chk">aligned buffers never straddle</span> → the path was never exercised</div>
 <div class="secbar">
   <button class="t go" onclick="checkSec('t')">check section 6</button>
   <button class="t gold" onclick="showAllAns('t')">show answers</button>
@@ -364,7 +368,7 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 
 <h2><span class="num">7</span> Recall <span class="hint">answer cold, days later</span></h2>
 <div class="recall">
-<ol><li>Two reads share an ID. List precisely what is ordered and what is not.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Explain why same-ID ordering does not cost you address-channel pipelining.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Give the one situation where same-ID reads still will not save you, and name the mechanism that will.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
+<ol><li>State the rule, the check, and which burst types it applies to.<textarea class="f" data-k="r1"></textarea><div class="model" data-model="r1"></div></li><li>Give three page properties that can differ and say why each breaks a straddling burst.<textarea class="f" data-k="r2"></textarea><div class="model" data-model="r2"></div></li><li>Explain why silent misdirection is worse than DECERR.<textarea class="f" data-k="r3"></textarea><div class="model" data-model="r3"></div></li></ol>
 <div class="secbar">
   <button class="t go" onclick="checkSec('r')">reveal section 7</button>
   <span class="score" id="sc-r"></span>
@@ -381,14 +385,14 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <div class="casenav">
-  <a href="read-03.html">← Case 03</a>
+  <a href="ordering-09.html">← Case 09</a>
   <span class="dots" id="dots"></span>
-  <a href="read-05.html">Case 05 →</a>
+  <span class="dis">end of topic →</span>
 </div>
 
 <footer>
   <span>ARM IHI 0022 · AMBA AXI and ACE Protocol Specification</span>
-  <span>Read Transactions · Case 04</span>
+  <span>Ordering & Hazards · Case 10</span>
 </footer>
 </div>
 
@@ -401,13 +405,13 @@ A and B in flight together, ordered return  <span class="cmt">=</span> <span cla
 </div>
 
 <script>
-const CID='read-04', TID='read', IDX=4, NCASE=8;
+const CID='ordering-10', TID='ordering', IDX=10, NCASE=10;
 const KEY='axi4wb:'+CID, INDEX='axi4wb:index';
-const CYCLES=11;
-const ROWS=[{"n": "ARVALID", "t": "bit", "g": "00000011110"}, {"n": "ARREADY", "t": "bit", "g": "00000010100"}, {"n": "ARID", "t": "bus"}, {"n": "ARADDR", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "RVALID", "t": "bit", "g": "00011100000"}, {"n": "RREADY", "t": "bit", "g": "00011100000"}, {"n": "RID", "t": "bus"}, {"n": "RDATA", "t": "bus"}, {"n": "RLAST", "t": "bit", "g": "00011000000"}];
-const ANS={"p1a": ["2"], "p1b": ["1"], "p2a": ["A", "a"], "p2b": ["on", "enon"], "p3": ["7"], "p4a": ["3"], "p4b": ["2"], "p6": ["on"], "d1a": ["sey"], "d1b": ["sey"], "d1d": ["63"], "d2c": ["emas"], "d2d": ["tnereffid", "ffid"], "c1": ["8"], "c2": ["0001x0"], "c3": ["8001x0"], "c4": ["F001x0"], "c5": ["08"], "c6": ["44"], "c7": ["63"], "c8": ["0002x0"], "t2": ["redro-ni"]};
-const MODEL={"p5": "It must hold B's data until Read A has completed \u2014 that is, until A's final beat has been transferred with RLAST asserted. The slave needs a buffer for the early data; it cannot simply present it and cannot discard it. Note what this implies for slave design: supporting same-ID ordering with concurrent internal fetches requires reorder buffering, which is why some simple slaves choose to serialise their fetches instead and take the latency hit.", "d1c": "Only the order in which responses appear on the R channel. The master may issue both addresses back to back; the slave may fetch both concurrently; the interconnect may route them independently. The single constraint is that A's beats, through RLAST, must appear before B's first beat. Everything upstream of that is unconstrained.", "d2a": "In-order return \u2014 exactly the behaviour AXI's ID mechanism exists to escape. Every transaction now waits behind every earlier one, so one slow access to a distant slave stalls all subsequent responses regardless of where they were headed. The master has kept the correctness it wanted and paid for it with the throughput of every unrelated access.", "d2b": "Share an ID only where an ordering dependency genuinely exists; use distinct IDs everywhere else, since every shared ID is an ordering constraint you are choosing to pay for.", "d3": "No. Same-ID ordering is a guarantee about the read channel only \u2014 it orders R responses against other R responses. The write travelled on AW and W, which are independent channels from AR, and AXI4 provides no cross-channel ordering guarantee at all. The slave may serve the read from memory before the write data has been committed, returning the old value, and that is entirely legal.<br><br>The only reliable guarantee is for the master to wait for the write's BRESP before issuing the read. This is the RAW hazard, and it catches people precisely because matching IDs <i>feel</i> like they should be sufficient.", "r1": "<b>Ordered:</b> the appearance of R beats on the bus \u2014 A's beats through RLAST precede B's first beat. <b>Not ordered:</b> the AR handshakes (both may be issued back to back), the slave's internal fetch order, and anything involving the write channels. The guarantee is about response visibility on one channel, nothing more.", "r2": "Because the constraint applies to the R channel, not the AR channel. The master issues both addresses immediately and both fetches proceed concurrently inside the slave; only the returning data is held in order. You pay for ordering with reorder buffering in the slave, not with address-channel idle time \u2014 which is why pipelining with a shared ID beats waiting for RLAST by roughly the latency of one transaction.", "r3": "A read that must observe a preceding write from the same master. Same-ID does nothing there, because reads and writes travel on independent channels with no cross-channel ordering. The mechanism that works is waiting for the write's BRESP before issuing the read \u2014 the write response is the only signal that the write has taken effect."};
-const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p3": "RLAST beat idx", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d1d": "d1d", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page"}], ["Section 6 \u2014 Triage", {"t2": "unmapped\u2192RRESP"}]];
+const CYCLES=10;
+const ROWS=[{"n": "AWVALID", "t": "bit", "g": "0001010000"}, {"n": "AWADDR", "t": "bus"}, {"n": "AWLEN", "t": "bus"}, {"n": "", "t": "sep"}, {"n": "Page", "t": "bus", "gv": [null, [">-0FF0x0", "0FF0x0"], ["F001x0>-", "F001x0"], ["!SESSORC", "SESSORC"], ["0 egaP", "0P", "0"], ["0 egaP", "0P", "0"], ["1 egaP", "1P", "1"], ["1 egaP", "1P", "1"], null, null]}, {"n": "WVALID", "t": "bit", "g": "0010100000"}, {"n": "WLAST", "t": "bit", "g": "0010100000"}, {"n": "BVALID", "t": "bit", "g": "0100000000"}];
+const ANS={"p1a": ["F001x0"], "p1b": ["0", "0x0"], "p2a": ["1", "1x0"], "p2b": ["on", "lagelli"], "p4a": ["0FF0x0"], "p4b": ["3"], "p4c": ["0001x0"], "p4d": ["3"], "p6": ["RCNI ylno", "RCNI"], "d1a": ["on"], "d1b": ["sey"], "d2c": ["1", "eno"], "d2d": ["EZISWA^2 \u00d7 )1+NELWA(", "EZISWA^2*)1+NELWA("], "c1": ["4"], "c2": ["23"], "c3": ["F001x0"], "c4": ["0"], "c5": ["1"], "c6": ["0FF0x0"], "c7": ["61"], "c8": ["0001x0"], "c9": ["61"], "c10": ["2"], "c11": ["2"]};
+const MODEL={"p5": "<b>Physical mapping.</b> Virtually adjacent pages are routinely not physically adjacent, so the second half of the burst belongs at an unrelated physical address.<br><br><b>Memory type.</b> One page may be normal and bufferable while the next is device and non-bufferable \u2014 the two halves would need different handling by the same transaction.<br><br><b>Access permissions.</b> One page writable, the next read-only or privileged-only, so half the burst is permitted and half is a violation.<br><br>Any one of these makes a straddling burst uninterpretable, since the burst carries a single address and a single set of attributes.", "d1c": "Because there is no correct behaviour to define. A burst carries one address, one AWCACHE, one AWPROT and one target \u2014 and a straddling burst needs two of each. Any defined behaviour would have to pick one page's properties and apply them to bytes belonging to the other, which is wrong in every case.<br><br>Forbidding it pushes the split to the master, which is the only agent that knows the transfer's real intent and can decompose it correctly.", "d2a": "Bits [31:12] of the start address and of the computed end address \u2014 the page number. If they are equal the burst lies within one page; if they differ it straddles a boundary and is illegal. The low 12 bits are the offset within the page and are irrelevant to the check.", "d2b": "Because a WRAP burst is confined to its own aligned block by construction \u2014 the modulo in its address formula guarantees it never leaves. The largest legal block is 16 beats of 128 bytes, so 2KB, and a naturally aligned region of 2KB or less lies entirely within one half of a 4KB page.<br><br>FIXED cannot violate it either, since every beat targets the same address.", "d2e": "Silent misdirection. A well-behaved interconnect returns DECERR, but a simpler one may route the entire burst according to its first address \u2014 so the beats that should have landed in the second page are written into whatever slave owns the first, at offsets past the end of its intended region.<br><br>If that slave is a peripheral, payload bytes land in its registers. No error is reported, because from the interconnect's point of view it routed a well-formed burst to a valid slave.", "d3": "The decoder examines the first address, selects the slave that owns page 0, and forwards the whole burst there. Beats that should have gone to page 1 are written to that slave at addresses past 0x0FFF \u2014 inside its region if it is large enough, or into whatever the slave does with out-of-range offsets.<br><br>If page 1 belongs to a different peripheral, its data never arrives and the first peripheral receives bytes it never expected. If those land on control registers, the first peripheral is reconfigured with payload data.<br><br>This is worse than an error because nothing reports it. DECERR gives you an address, a transaction and a place to look. Silent misdirection gives you a peripheral misbehaving for reasons that appear unrelated to the DMA that caused it, discovered much later and usually by someone debugging the wrong module.", "r1": "A single INCR burst must not cross a 4KB-aligned address boundary. Check it by computing <code>end = AWADDR + (AWLEN+1)\u00d72^AWSIZE \u2212 1</code> and comparing <code>AWADDR[31:12]</code> with <code>end[31:12]</code>. Only INCR can violate it \u2014 FIXED never leaves one address, and WRAP is confined to an aligned block of at most 2KB.", "r2": "Physical mapping, since adjacent virtual pages need not be physically adjacent and the second half belongs elsewhere. Memory type, since one page may be bufferable and the next device, requiring different handling of one transaction. Permissions, since one page may be writable and the next not, making half the burst a violation.", "r3": "DECERR names the failing transaction and address, so you know what to fix. Silent misdirection writes the tail of the burst into whichever slave owned the first address, with no error at all \u2014 so a peripheral is corrupted by a DMA it has no visible connection to, and the symptom surfaces later in an unrelated module."};
+const KEYGROUPS=[["Section 2 \u2014 Prediction", {"p1a": "beats", "p1b": "p1b", "p2a": "bytes/beat", "p2b": "total bytes", "p4a": "beat 0 addr", "p4b": "beat 1 addr", "p4c": "beat 2 addr", "p4d": "beat 3 addr", "p6": "RRESP count"}], ["Section 4 \u2014 Derivation", {"d1a": "bits 1\u2026256", "d1b": "bits 0\u2026255", "d2c": "handshake defines", "d2d": "data must be"}], ["Section 5 \u2014 Arithmetic", {"c1": "2^ARSIZE", "c2": "beat 0", "c3": "beat 1", "c4": "beat 2", "c5": "beat 3", "c6": "end addr", "c7": "start page", "c8": "end page", "c9": "legal?", "c10": "end @0x0FF0", "c11": "legal?"}]];
 const STATES=['un','hi','lo'];
 const rv=s=>s.split('').reverse().join('');
 let data={fields:{},wave:{},bus:{},self:{}}, saveTimer=null;
